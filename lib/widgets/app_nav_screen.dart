@@ -14,12 +14,7 @@ class MainNavigationScreen extends StatefulWidget {
 class _MainNavigationScreenState extends State<MainNavigationScreen> {
   int _selectedIndex = 0;
 
-  static const List<Widget> _screens = [
-    HomeScreen(),
-    HistoryScreen(),
-    DrawsScreen(),
-    ProfileScreen(),
-  ];
+  static const List<Widget> _screens = [HomeScreen(), HistoryScreen(), DrawsScreen(), ProfileScreen()];
 
   void _onItemTapped(int index) {
     if (_selectedIndex != index) {
@@ -31,21 +26,17 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return WillPopScope(
-      onWillPop: () async {
-        if (_selectedIndex != 0) {
+    return PopScope(
+      canPop: _selectedIndex == 0,
+      onPopInvokedWithResult: (didPop, result) {
+        if (!didPop && _selectedIndex != 0) {
           setState(() {
             _selectedIndex = 0;
           });
-          return false; // Navigate to home instead of exiting
         }
-        return true; // Allow exit from home screen
       },
       child: Scaffold(
-        body: IndexedStack(
-          index: _selectedIndex,
-          children: _screens,
-        ),
+        body: IndexedStack(index: _selectedIndex, children: _screens),
         bottomNavigationBar: _buildBottomNavBar(),
       ),
     );
@@ -55,17 +46,8 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
     return Container(
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: const BorderRadius.only(
-          topLeft: Radius.circular(24),
-          topRight: Radius.circular(24),
-        ),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.08),
-            blurRadius: 20,
-            offset: const Offset(0, -4),
-          ),
-        ],
+        borderRadius: const BorderRadius.only(topLeft: Radius.circular(24), topRight: Radius.circular(24)),
+        boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.08), blurRadius: 20, offset: const Offset(0, -4))],
       ),
       child: SafeArea(
         child: Padding(
@@ -86,7 +68,7 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
 
   Widget _buildNavItem(IconData icon, String label, int index) {
     final isSelected = _selectedIndex == index;
-    
+
     return Expanded(
       child: Material(
         color: Colors.transparent,
@@ -112,22 +94,14 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                Icon(
-                  icon,
-                  color: isSelected
-                      ? const Color(0xFF2D5BFF)
-                      : const Color(0xFF9CA3AF),
-                  size: 24,
-                ),
+                Icon(icon, color: isSelected ? const Color(0xFF2D5BFF) : const Color(0xFF9CA3AF), size: 24),
                 const SizedBox(height: 4),
                 Text(
                   label,
                   style: TextStyle(
                     fontSize: 12,
                     fontWeight: isSelected ? FontWeight.w600 : FontWeight.w500,
-                    color: isSelected
-                        ? const Color(0xFF2D5BFF)
-                        : const Color(0xFF9CA3AF),
+                    color: isSelected ? const Color(0xFF2D5BFF) : const Color(0xFF9CA3AF),
                   ),
                 ),
               ],

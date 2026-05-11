@@ -12,18 +12,6 @@ class PinScreen extends StatefulWidget {
 class _PinScreenState extends State<PinScreen> {
   String _enteredPin = '';
   bool _hasError = false;
-  String? _savedPin;
-
-  @override
-  void initState() {
-    super.initState();
-    _loadPin();
-  }
-
-  Future<void> _loadPin() async {
-    final pin = await AuthService.getPin();
-    setState(() => _savedPin = pin);
-  }
 
   void _onKey(String key) {
     if (_enteredPin.length >= 4) return;
@@ -47,12 +35,12 @@ class _PinScreenState extends State<PinScreen> {
   }
 
   void _verify() {
-    Future.delayed(const Duration(milliseconds: 200), () {
+    Future.delayed(const Duration(milliseconds: 200), () async {
       if (!mounted) return;
 
-      final correct = _savedPin ?? '1234';
+      final correct = await AuthService.verifyPin(_enteredPin);
 
-      if (_enteredPin == correct) {
+      if (correct) {
         Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => const MainNavigationScreen()));
       } else {
         setState(() {
@@ -63,18 +51,226 @@ class _PinScreenState extends State<PinScreen> {
     });
   }
 
+  void _showForgotPinDialog() {
+    final emailController = TextEditingController();
+
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: const Text('Forgot PIN?'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Enter your registered email address to verify your identity.',
+              style: TextStyle(fontSize: 13, color: Colors.grey[600]),
+            ),
+            const SizedBox(height: 16),
+            TextField(
+              controller: emailController,
+              keyboardType: TextInputType.emailAddress,
+              decoration: InputDecoration(
+                labelText: 'Registered Email',
+                prefixIcon: const Icon(Icons.email_outlined, color: Color(0xFF2D5BFF)),
+                border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                enabledBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  borderSide: const BorderSide(color: Color(0xFFE5E7EB)),
+                ),
+                focusedBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  borderSide: const BorderSide(color: Color(0xFF2D5BFF), width: 2),
+                ),
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
+          ElevatedButton(
+            onPressed: () async {
+              final enteredEmail = emailController.text.trim();
+
+              if (enteredEmail.isEmpty) return;
+
+              final profile = await AuthService.getUserProfile();
+
+              final storedEmail = profile['email'] ?? '';
+
+              if (!mounted) return;
+
+              Navigator.pop(context);
+
+              if (enteredEmail.toLowerCase() == storedEmail.toLowerCase()) {
+                _showResetPinDialog();
+              } else {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: const Text('Email does not match our records'),
+                    backgroundColor: Colors.red[400],
+                    behavior: SnackBarBehavior.floating,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  ),
+                );
+              }
+            },
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFF2D5BFF),
+              foregroundColor: Colors.white,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+            ),
+            child: const Text('Verify'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showResetPinDialog() {
+    final newPinController = TextEditingController();
+    final confirmPinController = TextEditingController();
+
+    bool obscureNew = true;
+    bool obscureConfirm = true;
+
+    showDialog(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+          title: const Text('Reset PIN'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(
+                controller: newPinController,
+                obscureText: obscureNew,
+                keyboardType: TextInputType.number,
+                maxLength: 4,
+                decoration: InputDecoration(
+                  labelText: 'New PIN (4 digits)',
+                  prefixIcon: const Icon(Icons.lock_outline, color: Color(0xFF2D5BFF)),
+                  suffixIcon: IconButton(
+                    icon: Icon(obscureNew ? Icons.visibility_outlined : Icons.visibility_off_outlined, color: Colors.grey[400]),
+                    onPressed: () {
+                      setDialogState(() {
+                        obscureNew = !obscureNew;
+                      });
+                    },
+                  ),
+                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                  enabledBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    borderSide: const BorderSide(color: Color(0xFFE5E7EB)),
+                  ),
+                  focusedBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    borderSide: const BorderSide(color: Color(0xFF2D5BFF), width: 2),
+                  ),
+                  counterText: '',
+                ),
+              ),
+
+              const SizedBox(height: 14),
+
+              TextField(
+                controller: confirmPinController,
+                obscureText: obscureConfirm,
+                keyboardType: TextInputType.number,
+                maxLength: 4,
+                decoration: InputDecoration(
+                  labelText: 'Confirm PIN',
+                  prefixIcon: const Icon(Icons.lock_outline, color: Color(0xFF2D5BFF)),
+                  suffixIcon: IconButton(
+                    icon: Icon(
+                      obscureConfirm ? Icons.visibility_outlined : Icons.visibility_off_outlined,
+                      color: Colors.grey[400],
+                    ),
+                    onPressed: () {
+                      setDialogState(() {
+                        obscureConfirm = !obscureConfirm;
+                      });
+                    },
+                  ),
+                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                  enabledBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    borderSide: const BorderSide(color: Color(0xFFE5E7EB)),
+                  ),
+                  focusedBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    borderSide: const BorderSide(color: Color(0xFF2D5BFF), width: 2),
+                  ),
+                  counterText: '',
+                ),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
+            ElevatedButton(
+              onPressed: () async {
+                final newPin = newPinController.text.trim();
+
+                final confirmPin = confirmPinController.text.trim();
+
+                if (newPin.length < 4) {
+                  ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('PIN must be 4 digits')));
+                  return;
+                }
+
+                if (newPin != confirmPin) {
+                  ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('PINs do not match')));
+                  return;
+                }
+
+                await AuthService.savePin(newPin);
+
+                if (!mounted) return;
+
+                Navigator.pop(context);
+
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: const Text('PIN has been reset successfully'),
+                    backgroundColor: const Color(0xFF10B981),
+                    behavior: SnackBarBehavior.floating,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  ),
+                );
+              },
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFF2D5BFF),
+                foregroundColor: Colors.white,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              ),
+              child: const Text('Reset PIN'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final size = MediaQuery.of(context).size;
+
     final width = size.width;
     final height = size.height;
 
-    // Responsive values
     final horizontalPadding = width * 0.06;
+
     final keySize = width * 0.2 > 80 ? 80.0 : width * 0.2;
+
     final spacing = width * 0.03;
+
     final pinDotSize = width * 0.045;
+
     final titleSize = width * 0.065;
+
     final subtitleSize = width * 0.036;
 
     return Scaffold(
@@ -91,7 +287,6 @@ class _PinScreenState extends State<PinScreen> {
                 children: [
                   SizedBox(height: height * 0.02),
 
-                  // Logo
                   Container(
                     width: width * 0.22 > 90 ? 90 : width * 0.22,
                     height: width * 0.22 > 90 ? 90 : width * 0.22,
@@ -107,7 +302,6 @@ class _PinScreenState extends State<PinScreen> {
 
                   SizedBox(height: height * 0.04),
 
-                  // Title
                   Text(
                     'Enter Your PIN',
                     textAlign: TextAlign.center,
@@ -127,7 +321,6 @@ class _PinScreenState extends State<PinScreen> {
 
                   SizedBox(height: height * 0.05),
 
-                  // PIN dots
                   Row(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: List.generate(4, (i) {
@@ -169,13 +362,12 @@ class _PinScreenState extends State<PinScreen> {
 
                   SizedBox(height: height * 0.05),
 
-                  // Keypad
                   _buildPad(keySize: keySize, spacing: spacing, fontSize: width * 0.06),
 
                   SizedBox(height: height * 0.03),
 
                   TextButton(
-                    onPressed: () {},
+                    onPressed: _showForgotPinDialog,
                     child: Text(
                       'Forgot PIN?',
                       style: TextStyle(color: Colors.grey[500], fontSize: width * 0.036),
@@ -196,16 +388,22 @@ class _PinScreenState extends State<PinScreen> {
     return Column(
       children: [
         _row(['1', '2', '3'], keySize, spacing, fontSize),
+
         SizedBox(height: spacing),
+
         _row(['4', '5', '6'], keySize, spacing, fontSize),
+
         SizedBox(height: spacing),
+
         _row(['7', '8', '9'], keySize, spacing, fontSize),
+
         SizedBox(height: spacing),
 
         Row(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
             SizedBox(width: keySize, height: keySize),
+
             SizedBox(width: spacing),
 
             _key('0', keySize: keySize, fontSize: fontSize),

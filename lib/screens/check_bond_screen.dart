@@ -1,8 +1,13 @@
 import 'package:flutter/material.dart';
+import 'package:hive_flutter/hive_flutter.dart';
 import 'package:prize_bond_checking_app/screens/scanner_screen.dart';
+import 'package:prize_bond_checking_app/models/check_record_model.dart';
+import 'package:prize_bond_checking_app/services/draw_service.dart';
 
 class CheckBondScreen extends StatefulWidget {
-  const CheckBondScreen({super.key});
+  final String? initialBondNumber;
+
+  const CheckBondScreen({super.key, this.initialBondNumber});
 
   @override
   State<CheckBondScreen> createState() => _CheckBondScreenState();
@@ -13,6 +18,8 @@ class _CheckBondScreenState extends State<CheckBondScreen> {
   String _selectedDenomination = 'Rs. 1500';
   bool _isChecking = false;
   Map<String, dynamic>? _checkResult;
+
+  final DrawService _drawService = DrawService();
 
   final List<String> denominations = [
     'Rs. 100',
@@ -26,6 +33,15 @@ class _CheckBondScreenState extends State<CheckBondScreen> {
   ];
 
   @override
+  void initState() {
+    super.initState();
+
+    if (widget.initialBondNumber != null) {
+      _bondNumberController.text = widget.initialBondNumber!;
+    }
+  }
+
+  @override
   void dispose() {
     _bondNumberController.dispose();
     super.dispose();
@@ -34,28 +50,37 @@ class _CheckBondScreenState extends State<CheckBondScreen> {
   void _checkBond() async {
     if (_bondNumberController.text.length != 6) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Please enter a valid 6-digit bond number'),
-          backgroundColor: Color(0xFFEF4444),
-        ),
+        const SnackBar(content: Text('Please enter a valid 6-digit bond number'), backgroundColor: Color(0xFFEF4444)),
       );
       return;
     }
 
     setState(() => _isChecking = true);
 
-    // TODO: Replace with real API call to match against official draw results
-    await Future.delayed(const Duration(seconds: 2));
+    final result = _drawService.checkBond(_bondNumberController.text, _selectedDenomination);
+
+    final record = CheckRecord()
+      ..bondNumber = _bondNumberController.text
+      ..denomination = _selectedDenomination
+      ..checkedAt = DateTime.now()
+      ..resultStatus = result != null ? 'Won' : 'No Win'
+      ..drawNumber = result?.drawNumber ?? 'N/A'
+      ..drawDate = result?.drawDate ?? 'N/A';
+    await Hive.box<CheckRecord>('check_history').add(record);
+
+    final checkedDraws = _drawService.getCompleted().where((d) => d.denomination == _selectedDenomination).length;
 
     setState(() {
       _isChecking = false;
       _checkResult = {
         'number': _bondNumberController.text,
         'denomination': _selectedDenomination,
-        'status': 'No Win', // Will come from real draw data
-        'drawDate': 'January 15, 2026',
-        'drawNumber': '101',
-        'checkedDraws': 3,
+        'status': result != null ? 'Winner!' : 'No Win',
+        'drawDate': result?.drawDate ?? 'N/A',
+        'drawNumber': result?.drawNumber ?? 'N/A',
+        'checkedDraws': checkedDraws,
+        'prizePosition': result != null ? _drawService.getPrizePosition(result, _bondNumberController.text) : null,
+        'prizeAmount': result != null ? _drawService.getPrizeAmount(result, _bondNumberController.text) : null,
       };
     });
 
@@ -95,13 +120,13 @@ class _CheckBondScreenState extends State<CheckBondScreen> {
               _buildResultRow('Denomination', _checkResult!['denomination']),
               _buildResultRow('Status', _checkResult!['status']),
               if (isWin) ...[
+                _buildResultRow('Prize', _checkResult!['prizePosition'] ?? ''),
+                _buildResultRow('Amount', _checkResult!['prizeAmount'] ?? ''),
                 const SizedBox(height: 12),
                 Container(
                   padding: const EdgeInsets.all(16),
                   decoration: BoxDecoration(
-                    gradient: const LinearGradient(
-                      colors: [Color(0xFFD1FAE5), Color(0xFFA7F3D0)],
-                    ),
+                    gradient: const LinearGradient(colors: [Color(0xFFD1FAE5), Color(0xFFA7F3D0)]),
                     borderRadius: BorderRadius.circular(12),
                   ),
                   child: const Column(
@@ -110,11 +135,7 @@ class _CheckBondScreenState extends State<CheckBondScreen> {
                       SizedBox(height: 8),
                       Text(
                         'You Won a Prize!',
-                        style: TextStyle(
-                          fontSize: 18,
-                          fontWeight: FontWeight.bold,
-                          color: Color(0xFF059669),
-                        ),
+                        style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Color(0xFF059669)),
                       ),
                     ],
                   ),
@@ -124,9 +145,7 @@ class _CheckBondScreenState extends State<CheckBondScreen> {
                 Container(
                   padding: const EdgeInsets.all(16),
                   decoration: BoxDecoration(
-                    gradient: const LinearGradient(
-                      colors: [Color(0xFFFEF3C7), Color(0xFFFDE68A)],
-                    ),
+                    gradient: const LinearGradient(colors: [Color(0xFFFEF3C7), Color(0xFFFDE68A)]),
                     borderRadius: BorderRadius.circular(12),
                   ),
                   child: Column(
@@ -138,36 +157,31 @@ class _CheckBondScreenState extends State<CheckBondScreen> {
                           SizedBox(width: 8),
                           Text(
                             'No Prize Won',
-                            style: TextStyle(
-                              fontSize: 16,
-                              fontWeight: FontWeight.bold,
-                              color: Color(0xFF92400E),
-                            ),
+                            style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Color(0xFF92400E)),
                           ),
                         ],
                       ),
                       const SizedBox(height: 8),
                       Text(
-                        'Checked against ${_checkResult!['checkedDraws']} recent draws',
+                        'Checked against ${_checkResult!['checkedDraws']} completed draws',
                         style: const TextStyle(fontSize: 12, color: Color(0xFF78350F)),
                       ),
                     ],
                   ),
                 ),
               ],
-              const SizedBox(height: 16),
-              Text(
-                'Last checked: ${_checkResult!['drawDate']} (Draw #${_checkResult!['drawNumber']})',
-                style: const TextStyle(fontSize: 12, color: Color(0xFF6B7280)),
-              ),
+              if (_checkResult!['drawDate'] != 'N/A') ...[
+                const SizedBox(height: 16),
+                Text(
+                  'Last draw: ${_checkResult!['drawDate']} (Draw #${_checkResult!['drawNumber']})',
+                  style: const TextStyle(fontSize: 12, color: Color(0xFF6B7280)),
+                ),
+              ],
             ],
           ),
         ),
         actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Close'),
-          ),
+          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Close')),
           ElevatedButton.icon(
             onPressed: () {
               Navigator.pop(context);
@@ -196,11 +210,7 @@ class _CheckBondScreenState extends State<CheckBondScreen> {
           Text(label, style: const TextStyle(fontSize: 14, color: Color(0xFF6B7280))),
           Text(
             value,
-            style: const TextStyle(
-              fontSize: 14,
-              fontWeight: FontWeight.w600,
-              color: Color(0xFF1F2937),
-            ),
+            style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: Color(0xFF1F2937)),
           ),
         ],
       ),
@@ -234,10 +244,7 @@ class _CheckBondScreenState extends State<CheckBondScreen> {
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
         ),
-        borderRadius: BorderRadius.only(
-          bottomLeft: Radius.circular(32),
-          bottomRight: Radius.circular(32),
-        ),
+        borderRadius: BorderRadius.only(bottomLeft: Radius.circular(32), bottomRight: Radius.circular(32)),
       ),
       padding: const EdgeInsets.all(24),
       child: Column(
@@ -254,20 +261,13 @@ class _CheckBondScreenState extends State<CheckBondScreen> {
                 const SizedBox(width: 12),
                 const Text(
                   'Check Prize Bond',
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontSize: 24,
-                    fontWeight: FontWeight.bold,
-                  ),
+                  style: TextStyle(color: Colors.white, fontSize: 24, fontWeight: FontWeight.bold),
                 ),
               ],
             ),
           ),
           const SizedBox(height: 12),
-          Text(
-            'Enter your bond details to check results',
-            style: TextStyle(color: Colors.white.withOpacity(0.9), fontSize: 14),
-          ),
+          Text('Enter your bond details to check results', style: TextStyle(color: Colors.white.withOpacity(0.9), fontSize: 14)),
         ],
       ),
     );
@@ -280,13 +280,7 @@ class _CheckBondScreenState extends State<CheckBondScreen> {
         decoration: BoxDecoration(
           color: Colors.white,
           borderRadius: BorderRadius.circular(24),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withOpacity(0.06),
-              blurRadius: 12,
-              offset: const Offset(0, 4),
-            ),
-          ],
+          boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.06), blurRadius: 12, offset: const Offset(0, 4))],
         ),
         padding: const EdgeInsets.all(24),
         child: Column(
@@ -298,22 +292,14 @@ class _CheckBondScreenState extends State<CheckBondScreen> {
                 SizedBox(width: 12),
                 Text(
                   'Enter Bond Details',
-                  style: TextStyle(
-                    fontSize: 20,
-                    fontWeight: FontWeight.bold,
-                    color: Color(0xFF1F2937),
-                  ),
+                  style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Color(0xFF1F2937)),
                 ),
               ],
             ),
             const SizedBox(height: 20),
             const Text(
               'Denomination',
-              style: TextStyle(
-                fontSize: 14,
-                fontWeight: FontWeight.w600,
-                color: Color(0xFF6B7280),
-              ),
+              style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: Color(0xFF6B7280)),
             ),
             const SizedBox(height: 8),
             DropdownButtonFormField<String>(
@@ -324,30 +310,20 @@ class _CheckBondScreenState extends State<CheckBondScreen> {
                 filled: true,
                 fillColor: const Color(0xFFF9FAFB),
               ),
-              items: denominations
-                  .map((d) => DropdownMenuItem(value: d, child: Text(d)))
-                  .toList(),
+              items: denominations.map((d) => DropdownMenuItem(value: d, child: Text(d))).toList(),
               onChanged: (val) => setState(() => _selectedDenomination = val!),
             ),
             const SizedBox(height: 20),
             const Text(
               'Bond Number',
-              style: TextStyle(
-                fontSize: 14,
-                fontWeight: FontWeight.w600,
-                color: Color(0xFF6B7280),
-              ),
+              style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: Color(0xFF6B7280)),
             ),
             const SizedBox(height: 8),
             TextField(
               controller: _bondNumberController,
               keyboardType: TextInputType.number,
               maxLength: 6,
-              style: const TextStyle(
-                fontSize: 18,
-                fontWeight: FontWeight.w600,
-                fontFamily: 'monospace',
-              ),
+              style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w600, fontFamily: 'monospace'),
               decoration: InputDecoration(
                 hintText: 'Enter 6-digit number',
                 prefixIcon: const Icon(Icons.numbers, color: Color(0xFF2D5BFF)),
@@ -363,14 +339,7 @@ class _CheckBondScreenState extends State<CheckBondScreen> {
               child: ElevatedButton.icon(
                 onPressed: _isChecking ? null : _checkBond,
                 icon: _isChecking
-                    ? const SizedBox(
-                        width: 16,
-                        height: 16,
-                        child: CircularProgressIndicator(
-                          strokeWidth: 2,
-                          color: Colors.white,
-                        ),
-                      )
+                    ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
                     : const Icon(Icons.search),
                 label: Text(_isChecking ? 'Checking...' : 'Check Bond'),
                 style: ElevatedButton.styleFrom(
@@ -396,25 +365,16 @@ class _CheckBondScreenState extends State<CheckBondScreen> {
         children: [
           const Text(
             'Quick Actions',
-            style: TextStyle(
-              fontSize: 18,
-              fontWeight: FontWeight.bold,
-              color: Color(0xFF1F2937),
-            ),
+            style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Color(0xFF1F2937)),
           ),
           const SizedBox(height: 16),
           _buildActionCard(
             icon: Icons.qr_code_scanner,
             title: 'Scan Bond',
-            subtitle: 'Use camera',
-            gradient: const LinearGradient(
-              colors: [Color(0xFF2D5BFF), Color(0xFF8B5CF6)],
-            ),
+            subtitle: 'Use camera to scan bond number',
+            gradient: const LinearGradient(colors: [Color(0xFF2D5BFF), Color(0xFF8B5CF6)]),
             onTap: () async {
-              final scannedNumber = await Navigator.push(
-                context,
-                MaterialPageRoute(builder: (_) => const ScannerScreen()),
-              );
+              final scannedNumber = await Navigator.push(context, MaterialPageRoute(builder: (_) => const ScannerScreen()));
               if (scannedNumber != null) {
                 _bondNumberController.text = scannedNumber;
               }
@@ -436,13 +396,7 @@ class _CheckBondScreenState extends State<CheckBondScreen> {
       decoration: BoxDecoration(
         gradient: gradient,
         borderRadius: BorderRadius.circular(20),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.1),
-            blurRadius: 12,
-            offset: const Offset(0, 4),
-          ),
-        ],
+        boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.1), blurRadius: 12, offset: const Offset(0, 4))],
       ),
       child: Material(
         color: Colors.transparent,
@@ -461,20 +415,10 @@ class _CheckBondScreenState extends State<CheckBondScreen> {
                   children: [
                     Text(
                       title,
-                      style: const TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.w600,
-                        color: Colors.white,
-                      ),
+                      style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600, color: Colors.white),
                     ),
                     const SizedBox(height: 4),
-                    Text(
-                      subtitle,
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: Colors.white.withOpacity(0.9),
-                      ),
-                    ),
+                    Text(subtitle, style: TextStyle(fontSize: 12, color: Colors.white.withOpacity(0.9))),
                   ],
                 ),
               ],

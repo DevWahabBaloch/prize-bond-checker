@@ -1,9 +1,96 @@
 import 'package:flutter/material.dart';
+import 'package:prize_bond_checking_app/config/app_config.dart';
 import 'package:prize_bond_checking_app/screens/admin/admin_screen.dart';
 import 'package:prize_bond_checking_app/screens/auth/register_screen.dart';
 
 class LandingScreen extends StatelessWidget {
   const LandingScreen({super.key});
+
+  static const String _adminPassword = AppConfig.adminPassword;
+
+  void _showAdminPasswordDialog(BuildContext context) {
+    final passwordController = TextEditingController();
+    bool obscure = true;
+
+    showDialog(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+          title: const Row(
+            children: [
+              Icon(Icons.admin_panel_settings_outlined, color: Color(0xFF2D5BFF)),
+              SizedBox(width: 10),
+              Text('Admin Access'),
+            ],
+          ),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('Enter the admin password to continue.', style: TextStyle(fontSize: 13, color: Colors.grey[600])),
+              const SizedBox(height: 16),
+              TextField(
+                controller: passwordController,
+                obscureText: obscure,
+                decoration: InputDecoration(
+                  labelText: 'Admin Password',
+                  prefixIcon: const Icon(Icons.lock_outline, color: Color(0xFF2D5BFF)),
+                  suffixIcon: IconButton(
+                    icon: Icon(obscure ? Icons.visibility_outlined : Icons.visibility_off_outlined, color: Colors.grey[400]),
+                    onPressed: () {
+                      setDialogState(() => obscure = !obscure);
+                    },
+                  ),
+                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                  enabledBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    borderSide: const BorderSide(color: Color(0xFFE5E7EB)),
+                  ),
+                  focusedBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    borderSide: const BorderSide(color: Color(0xFF2D5BFF), width: 2),
+                  ),
+                ),
+                onSubmitted: (_) => _verifyAndNavigate(context, passwordController.text),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
+            ElevatedButton(
+              onPressed: () => _verifyAndNavigate(context, passwordController.text),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFF2D5BFF),
+                foregroundColor: Colors.white,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              ),
+              child: const Text('Enter'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _verifyAndNavigate(BuildContext context, String entered) {
+    if (entered == _adminPassword) {
+      Navigator.pop(context);
+
+      Navigator.push(context, MaterialPageRoute(builder: (_) => const AdminScreen()));
+    } else {
+      Navigator.pop(context);
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: const Text('Incorrect password'),
+          backgroundColor: Colors.red[400],
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        ),
+      );
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -14,7 +101,7 @@ class LandingScreen extends StatelessWidget {
         elevation: 0,
         actions: [
           TextButton.icon(
-            onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const AdminScreen())),
+            onPressed: () => _showAdminPasswordDialog(context),
             icon: const Icon(Icons.admin_panel_settings_outlined, size: 18, color: Color(0xFF6B7280)),
             label: const Text('Admin', style: TextStyle(color: Color(0xFF6B7280), fontSize: 13)),
           ),
@@ -50,10 +137,10 @@ class LandingScreen extends StatelessWidget {
 
               const SizedBox(height: 40),
 
-              const Text(
-                'Prize Bond\nChecking App',
+              Text(
+                AppConfig.appName,
                 textAlign: TextAlign.center,
-                style: TextStyle(fontSize: 34, fontWeight: FontWeight.bold, color: Color(0xFF1F2937), height: 1.2),
+                style: const TextStyle(fontSize: 34, fontWeight: FontWeight.bold, color: Color(0xFF1F2937), height: 1.2),
               ),
 
               const SizedBox(height: 16),
@@ -72,14 +159,18 @@ class LandingScreen extends StatelessWidget {
                 subtitle: 'Verify your prize bonds in seconds',
                 color: const Color(0xFF2D5BFF),
               ),
+
               const SizedBox(height: 12),
+
               _FeatureCard(
                 icon: Icons.notifications_active_outlined,
                 title: 'Get Notified',
                 subtitle: 'Receive alerts on winning results',
                 color: const Color(0xFF8B5CF6),
               ),
+
               const SizedBox(height: 12),
+
               _FeatureCard(
                 icon: Icons.security_outlined,
                 title: 'Secure & Private',
@@ -93,7 +184,9 @@ class LandingScreen extends StatelessWidget {
                 width: double.infinity,
                 height: 56,
                 child: ElevatedButton(
-                  onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const RegisterScreen())),
+                  onPressed: () {
+                    Navigator.push(context, MaterialPageRoute(builder: (_) => const RegisterScreen()));
+                  },
                   style: ElevatedButton.styleFrom(
                     backgroundColor: const Color(0xFF2D5BFF),
                     foregroundColor: Colors.white,
@@ -112,6 +205,14 @@ class LandingScreen extends StatelessWidget {
                 style: TextStyle(fontSize: 13, color: Colors.grey[400], height: 1.5),
               ),
 
+              const SizedBox(height: 20),
+
+              Text(
+                AppConfig.dataDisclaimer,
+                textAlign: TextAlign.center,
+                style: TextStyle(fontSize: 11, color: Colors.grey[500], height: 1.5),
+              ),
+
               const SizedBox(height: 32),
             ],
           ),
@@ -126,6 +227,7 @@ class _FeatureCard extends StatelessWidget {
   final String title;
   final String subtitle;
   final Color color;
+
   const _FeatureCard({required this.icon, required this.title, required this.subtitle, required this.color});
 
   @override
@@ -145,7 +247,9 @@ class _FeatureCard extends StatelessWidget {
             decoration: BoxDecoration(color: color.withOpacity(0.1), borderRadius: BorderRadius.circular(12)),
             child: Icon(icon, color: color, size: 24),
           ),
+
           const SizedBox(width: 16),
+
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,

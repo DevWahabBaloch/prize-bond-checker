@@ -1,10 +1,19 @@
 import 'package:flutter/material.dart';
+import 'package:hive_flutter/hive_flutter.dart';
+import 'package:prize_bond_checking_app/models/bond_model.dart';
+import 'package:prize_bond_checking_app/models/draw_result_model.dart';
 import 'package:prize_bond_checking_app/screens/check_bond_screen.dart';
-import 'package:prize_bond_checking_app/screens/scanner_screen.dart';
 import 'package:prize_bond_checking_app/screens/draws_screen.dart';
-import 'package:prize_bond_checking_app/screens/notifications_screen.dart'; // ← NEW
+import 'package:prize_bond_checking_app/screens/my_bonds_screen.dart';
+import 'package:prize_bond_checking_app/screens/notifications_screen.dart';
+import 'package:prize_bond_checking_app/screens/scanner_screen.dart';
 import 'package:prize_bond_checking_app/services/auth_service.dart';
 import 'package:prize_bond_checking_app/services/notification_service.dart';
+
+class _BP {
+  static const double tablet = 600;
+  static const double desktop = 900;
+}
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -33,10 +42,8 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
-  /// Opens the dedicated Notifications page.
   void _openNotifications() async {
     await Navigator.push(context, MaterialPageRoute(builder: (_) => const NotificationsScreen()));
-    // Refresh badge count when returning from the notifications page.
     if (mounted) setState(() {});
   }
 
@@ -46,25 +53,90 @@ class _HomeScreenState extends State<HomeScreen> {
       backgroundColor: const Color(0xFFFAFBFC),
       body: _isLoading
           ? const Center(child: CircularProgressIndicator(color: Color(0xFF2D5BFF)))
-          : SingleChildScrollView(
-              child: Column(
-                children: [
-                  _buildHeader(),
-                  const SizedBox(height: 20),
-                  _buildQuickActions(context),
-                  const SizedBox(height: 24),
-                  _buildMyBondsSection(context),
-                  const SizedBox(height: 24),
-                  _buildRecentDrawsSection(context),
-                  const SizedBox(height: 100),
-                ],
-              ),
+          : LayoutBuilder(
+              builder: (context, constraints) {
+                final width = constraints.maxWidth;
+                return SingleChildScrollView(
+                  child: Column(
+                    children: [
+                      _buildHeader(width),
+                      SizedBox(height: width >= _BP.tablet ? 28 : 20),
+                      _buildBody(width),
+                      const SizedBox(height: 100),
+                    ],
+                  ),
+                );
+              },
             ),
     );
   }
 
-  Widget _buildHeader() {
-    // Read live unread count from the singleton service
+  Widget _buildBody(double width) {
+    if (width >= _BP.desktop) {
+      return Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 32),
+        child: Column(
+          children: [
+            _buildQuickActions(width),
+            const SizedBox(height: 28),
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(child: _buildMyBondsSection(width)),
+                const SizedBox(width: 24),
+                Expanded(child: _buildRecentDrawsSection(width)),
+              ],
+            ),
+          ],
+        ),
+      );
+    } else if (width >= _BP.tablet) {
+      return Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 24),
+        child: Column(
+          children: [
+            _buildQuickActions(width),
+            const SizedBox(height: 24),
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(child: _buildMyBondsSection(width)),
+                const SizedBox(width: 20),
+                Expanded(child: _buildRecentDrawsSection(width)),
+              ],
+            ),
+          ],
+        ),
+      );
+    } else {
+      return Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 20),
+        child: Column(
+          children: [
+            _buildQuickActions(width),
+            const SizedBox(height: 24),
+            _buildMyBondsSection(width),
+            const SizedBox(height: 24),
+            _buildRecentDrawsSection(width),
+          ],
+        ),
+      );
+    }
+  }
+
+  Widget _buildHeader(double width) {
+    final isTablet = width >= _BP.tablet;
+    final isDesktop = width >= _BP.desktop;
+    final hPad = isDesktop
+        ? 32.0
+        : isTablet
+        ? 28.0
+        : 24.0;
+    final titleSize = isDesktop
+        ? 28.0
+        : isTablet
+        ? 26.0
+        : 24.0;
     final unreadCount = NotificationService().unreadCount;
 
     return Container(
@@ -76,7 +148,7 @@ class _HomeScreenState extends State<HomeScreen> {
         ),
         borderRadius: BorderRadius.only(bottomLeft: Radius.circular(32), bottomRight: Radius.circular(32)),
       ),
-      padding: const EdgeInsets.all(24),
+      padding: EdgeInsets.symmetric(horizontal: hPad, vertical: 24),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -92,17 +164,16 @@ class _HomeScreenState extends State<HomeScreen> {
                     const SizedBox(height: 4),
                     Text(
                       _userName,
-                      style: const TextStyle(color: Colors.white, fontSize: 24, fontWeight: FontWeight.bold),
+                      style: TextStyle(color: Colors.white, fontSize: titleSize, fontWeight: FontWeight.bold),
                     ),
                   ],
                 ),
               ),
-              // ─── Notification bell (navigates to NotificationsScreen) ───────
               Stack(
                 children: [
                   IconButton(
                     icon: const Icon(Icons.notifications_outlined, color: Colors.white),
-                    onPressed: _openNotifications, // ← changed
+                    onPressed: _openNotifications,
                   ),
                   if (unreadCount > 0)
                     Positioned(
@@ -125,29 +196,44 @@ class _HomeScreenState extends State<HomeScreen> {
             ],
           ),
           const SizedBox(height: 20),
-          Container(
-            decoration: BoxDecoration(color: Colors.white.withOpacity(0.2), borderRadius: BorderRadius.circular(16)),
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-            child: Row(
-              children: [
-                Icon(Icons.search, color: Colors.white.withOpacity(0.8)),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: TextField(
-                    style: const TextStyle(color: Colors.white),
-                    decoration: InputDecoration(
-                      hintText: 'Search prize bond number...',
-                      hintStyle: TextStyle(color: Colors.white.withOpacity(0.7)),
-                      border: InputBorder.none,
+
+          Align(
+            alignment: Alignment.centerLeft,
+            child: ConstrainedBox(
+              constraints: BoxConstraints(maxWidth: isDesktop ? 560 : double.infinity),
+              child: Container(
+                decoration: BoxDecoration(color: Colors.white.withOpacity(0.2), borderRadius: BorderRadius.circular(16)),
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                child: Row(
+                  children: [
+                    Icon(Icons.search, color: Colors.white.withOpacity(0.8)),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: TextField(
+                        style: const TextStyle(color: Colors.white),
+                        decoration: InputDecoration(
+                          hintText: 'Search prize bond number...',
+                          hintStyle: TextStyle(color: Colors.white.withOpacity(0.7)),
+                          border: InputBorder.none,
+                          isDense: true,
+                        ),
+                        onSubmitted: (value) {
+                          final digits = value.replaceAll(RegExp(r'[^0-9]'), '');
+                          if (digits.isNotEmpty) {
+                            Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                builder: (_) =>
+                                    CheckBondScreen(initialBondNumber: digits.length >= 6 ? digits.substring(0, 6) : digits),
+                              ),
+                            );
+                          }
+                        },
+                      ),
                     ),
-                    onSubmitted: (value) {
-                      if (value.length == 6) {
-                        Navigator.push(context, MaterialPageRoute(builder: (_) => const CheckBondScreen()));
-                      }
-                    },
-                  ),
+                  ],
                 ),
-              ],
+              ),
             ),
           ),
         ],
@@ -155,52 +241,52 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  Widget _buildQuickActions(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 20),
-      child: Row(
-        children: [
-          Expanded(
-            child: _buildActionCard(
-              context: context,
-              icon: Icons.search,
-              title: 'Check Bond',
-              subtitle: 'Search by number',
-              gradient: const LinearGradient(colors: [Color(0xFF2D5BFF), Color(0xFF8B5CF6)]),
-              isGradient: false,
-              onTap: () {
-                Navigator.push(context, MaterialPageRoute(builder: (_) => const CheckBondScreen()));
-              },
-            ),
+  Widget _buildQuickActions(double width) {
+    final isTablet = width >= _BP.tablet;
+
+    return Row(
+      children: [
+        Expanded(
+          child: _buildActionCard(
+            icon: Icons.search,
+            title: 'Check Bond',
+            subtitle: 'Search by number',
+            gradient: const LinearGradient(colors: [Color(0xFF2D5BFF), Color(0xFF8B5CF6)]),
+            isGradient: false,
+            isTablet: isTablet,
+            onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const CheckBondScreen())),
           ),
-          const SizedBox(width: 16),
-          Expanded(
-            child: _buildActionCard(
-              context: context,
-              icon: Icons.qr_code_scanner,
-              title: 'Scan Bond',
-              subtitle: 'Use camera',
-              gradient: const LinearGradient(colors: [Color(0xFF2D5BFF), Color(0xFF8B5CF6)]),
-              isGradient: true,
-              onTap: () {
-                Navigator.push(context, MaterialPageRoute(builder: (_) => const ScannerScreen()));
-              },
-            ),
+        ),
+        SizedBox(width: isTablet ? 20 : 16),
+        Expanded(
+          child: _buildActionCard(
+            icon: Icons.qr_code_scanner,
+            title: 'Scan Bond',
+            subtitle: 'Use camera',
+            gradient: const LinearGradient(colors: [Color(0xFF2D5BFF), Color(0xFF8B5CF6)]),
+            isGradient: true,
+            isTablet: isTablet,
+            onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const ScannerScreen())),
           ),
-        ],
-      ),
+        ),
+      ],
     );
   }
 
   Widget _buildActionCard({
-    required BuildContext context,
     required IconData icon,
     required String title,
     required String subtitle,
     required Gradient gradient,
     required bool isGradient,
+    required bool isTablet,
     VoidCallback? onTap,
   }) {
+    final iconSize = isTablet ? 32.0 : 28.0;
+    final iconBoxSize = isTablet ? 64.0 : 56.0;
+    final titleSize = isTablet ? 20.0 : 18.0;
+    final subtitleSize = isTablet ? 15.0 : 14.0;
+
     return Container(
       decoration: BoxDecoration(
         gradient: isGradient ? gradient : null,
@@ -214,26 +300,26 @@ class _HomeScreenState extends State<HomeScreen> {
           borderRadius: BorderRadius.circular(24),
           onTap: onTap,
           child: Padding(
-            padding: const EdgeInsets.all(20),
+            padding: EdgeInsets.all(isTablet ? 24 : 20),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Container(
-                  width: 56,
-                  height: 56,
+                  width: iconBoxSize,
+                  height: iconBoxSize,
                   decoration: BoxDecoration(
                     gradient: isGradient
                         ? LinearGradient(colors: [Colors.white.withOpacity(0.2), Colors.white.withOpacity(0.1)])
                         : gradient,
                     borderRadius: BorderRadius.circular(16),
                   ),
-                  child: Icon(icon, color: Colors.white, size: 28),
+                  child: Icon(icon, color: Colors.white, size: iconSize),
                 ),
-                const SizedBox(height: 16),
+                SizedBox(height: isTablet ? 20 : 16),
                 Text(
                   title,
                   style: TextStyle(
-                    fontSize: 18,
+                    fontSize: titleSize,
                     fontWeight: FontWeight.w600,
                     color: isGradient ? Colors.white : const Color(0xFF1F2937),
                   ),
@@ -241,7 +327,10 @@ class _HomeScreenState extends State<HomeScreen> {
                 const SizedBox(height: 4),
                 Text(
                   subtitle,
-                  style: TextStyle(fontSize: 14, color: isGradient ? Colors.white.withOpacity(0.8) : const Color(0xFF6B7280)),
+                  style: TextStyle(
+                    fontSize: subtitleSize,
+                    color: isGradient ? Colors.white.withOpacity(0.8) : const Color(0xFF6B7280),
+                  ),
                 ),
               ],
             ),
@@ -251,123 +340,97 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  Widget _buildMyBondsSection(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 20),
-      child: Container(
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(24),
-          boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 10, offset: const Offset(0, 2))],
-        ),
-        padding: const EdgeInsets.all(20),
-        child: Column(
-          children: [
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                const Text(
-                  'My Bonds',
-                  style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Color(0xFF1F2937)),
-                ),
-                Container(
-                  decoration: BoxDecoration(color: const Color(0xFFEFF6FF), borderRadius: BorderRadius.circular(20)),
-                  child: Material(
-                    color: Colors.transparent,
-                    child: InkWell(
-                      borderRadius: BorderRadius.circular(20),
-                      onTap: () => _showAddBondDialog(context),
-                      child: const Padding(
-                        padding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                        child: Row(
-                          children: [
-                            Icon(Icons.add, size: 16, color: Color(0xFF2D5BFF)),
-                            SizedBox(width: 4),
-                            Text(
-                              'Add New',
-                              style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: Color(0xFF2D5BFF)),
-                            ),
-                          ],
-                        ),
+  Widget _buildMyBondsSection(double width) {
+    final isTablet = width >= _BP.tablet;
+
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(24),
+        boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 10, offset: const Offset(0, 2))],
+      ),
+      padding: EdgeInsets.all(isTablet ? 24 : 20),
+      child: Column(
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text(
+                'My Bonds',
+                style: TextStyle(fontSize: isTablet ? 22 : 20, fontWeight: FontWeight.bold, color: const Color(0xFF1F2937)),
+              ),
+              Container(
+                decoration: BoxDecoration(color: const Color(0xFFEFF6FF), borderRadius: BorderRadius.circular(20)),
+                child: Material(
+                  color: Colors.transparent,
+                  child: InkWell(
+                    borderRadius: BorderRadius.circular(20),
+                    onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const MyBondsScreen())),
+                    child: const Padding(
+                      padding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                      child: Row(
+                        children: [
+                          Icon(Icons.add, size: 16, color: Color(0xFF2D5BFF)),
+                          SizedBox(width: 4),
+                          Text(
+                            'Add New',
+                            style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: Color(0xFF2D5BFF)),
+                          ),
+                        ],
                       ),
                     ),
                   ),
                 ),
-              ],
-            ),
-            const SizedBox(height: 16),
-            _buildBondItem('123456', 'Rs. 1500'),
-            const SizedBox(height: 12),
-            _buildBondItem('789012', 'Rs. 750'),
-          ],
-        ),
-      ),
-    );
-  }
-
-  void _showAddBondDialog(BuildContext context) {
-    final TextEditingController numberController = TextEditingController();
-    String selectedDenom = 'Rs. 1500';
-
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-        title: const Text('Add New Bond'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            DropdownButtonFormField<String>(
-              value: selectedDenom,
-              items: const [
-                'Rs. 100',
-                'Rs. 200',
-                'Rs. 750',
-                'Rs. 1500',
-                'Rs. 7500',
-                'Rs. 15000',
-                'Rs. 25000',
-                'Rs. 40000',
-              ].map((d) => DropdownMenuItem(value: d, child: Text(d))).toList(),
-              onChanged: (val) => selectedDenom = val!,
-            ),
-            const SizedBox(height: 16),
-            TextField(
-              controller: numberController,
-              keyboardType: TextInputType.number,
-              maxLength: 6,
-              decoration: const InputDecoration(labelText: 'Bond Number', border: OutlineInputBorder()),
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
-          ElevatedButton(
-            onPressed: () {
-              if (numberController.text.length == 6) {
-                Navigator.pop(context);
-                ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Bond added successfully!')));
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          ValueListenableBuilder(
+            valueListenable: Hive.box<Bond>('bonds').listenable(),
+            builder: (context, Box<Bond> box, _) {
+              if (box.isEmpty) {
+                return _buildEmptyState(Icons.bookmark_border_rounded, 'No bonds saved yet — tap Add New');
               }
+              final bonds = box.values.toList().reversed.take(2).toList();
+              return Column(
+                children: bonds
+                    .map(
+                      (bond) => Padding(
+                        padding: const EdgeInsets.only(bottom: 12),
+                        child: _buildBondItem(bond.number, bond.denomination, bond.status, isTablet),
+                      ),
+                    )
+                    .toList(),
+              );
             },
-            child: const Text('Add Bond'),
           ),
         ],
       ),
     );
   }
 
-  Widget _buildBondItem(String number, String denomination) {
+  Widget _buildBondItem(String number, String denomination, String status, bool isTablet) {
+    Color statusColor;
+    Color statusBg;
+
+    if (status == 'Won') {
+      statusColor = const Color(0xFF059669);
+      statusBg = const Color(0xFFD1FAE5);
+    } else if (status == 'No Win') {
+      statusColor = const Color(0xFFF59E0B);
+      statusBg = const Color(0xFFFEF3C7);
+    } else {
+      statusColor = const Color(0xFF2D5BFF);
+      statusBg = const Color(0xFFEFF6FF);
+    }
+
     return Container(
       decoration: BoxDecoration(
-        gradient: const LinearGradient(
-          colors: [Color(0xFFF9FAFB), Color(0xFFEFF6FF)],
-          begin: Alignment.centerLeft,
-          end: Alignment.centerRight,
-        ),
+        gradient: const LinearGradient(colors: [Color(0xFFF9FAFB), Color(0xFFEFF6FF)]),
         borderRadius: BorderRadius.circular(16),
         border: Border.all(color: const Color(0xFFE5E7EB)),
       ),
-      padding: const EdgeInsets.all(16),
+      padding: EdgeInsets.all(isTablet ? 18 : 16),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
@@ -376,23 +439,18 @@ class _HomeScreenState extends State<HomeScreen> {
             children: [
               Text(
                 number,
-                style: const TextStyle(
-                  fontSize: 18,
-                  fontWeight: FontWeight.w600,
-                  fontFamily: 'monospace',
-                  color: Color(0xFF1F2937),
-                ),
+                style: TextStyle(fontSize: isTablet ? 20 : 18, fontWeight: FontWeight.w600, fontFamily: 'monospace'),
               ),
               const SizedBox(height: 4),
-              Text(denomination, style: const TextStyle(fontSize: 14, color: Color(0xFF6B7280))),
+              Text(denomination),
             ],
           ),
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-            decoration: BoxDecoration(color: const Color(0xFFD1FAE5), borderRadius: BorderRadius.circular(12)),
-            child: const Text(
-              'Active',
-              style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Color(0xFF059669)),
+            decoration: BoxDecoration(color: statusBg, borderRadius: BorderRadius.circular(12)),
+            child: Text(
+              status == 'Active' ? 'Active' : status,
+              style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: statusColor),
             ),
           ),
         ],
@@ -400,49 +458,61 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  Widget _buildRecentDrawsSection(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 20),
-      child: Container(
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(24),
-          boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 10, offset: const Offset(0, 2))],
-        ),
-        padding: const EdgeInsets.all(20),
-        child: Column(
-          children: [
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                const Text(
-                  'Recent Draws',
-                  style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Color(0xFF1F2937)),
+  Widget _buildRecentDrawsSection(double width) {
+    final isTablet = width >= _BP.tablet;
+
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(24),
+        boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 10, offset: const Offset(0, 2))],
+      ),
+      padding: EdgeInsets.all(isTablet ? 24 : 20),
+      child: Column(
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text(
+                'Recent Draws',
+                style: TextStyle(fontSize: isTablet ? 22 : 20, fontWeight: FontWeight.bold, color: const Color(0xFF1F2937)),
+              ),
+              TextButton(
+                onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const DrawsScreen())),
+                child: const Text(
+                  'View All',
+                  style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: Color(0xFF2D5BFF)),
                 ),
-                TextButton(
-                  onPressed: () {
-                    Navigator.push(context, MaterialPageRoute(builder: (_) => const DrawsScreen()));
-                  },
-                  child: const Text(
-                    'View All',
-                    style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: Color(0xFF2D5BFF)),
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 16),
-            _buildDrawItem('Rs. 1500', 'Jan 15, 2026', 'Lahore', '654321'),
-            const SizedBox(height: 12),
-            _buildDrawItem('Rs. 750', 'Jan 10, 2026', 'Karachi', '987654'),
-            const SizedBox(height: 12),
-            _buildDrawItem('Rs. 200', 'Jan 05, 2026', 'Islamabad', '456789'),
-          ],
-        ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          ValueListenableBuilder(
+            valueListenable: Hive.box<DrawResult>('draws').listenable(),
+            builder: (context, Box<DrawResult> box, _) {
+              final completed = box.values.where((d) => d.status == 'completed').toList().reversed.take(3).toList();
+
+              if (completed.isEmpty) {
+                return _buildEmptyState(Icons.history_rounded, 'No completed draws yet');
+              }
+
+              return Column(
+                children: completed.asMap().entries.map((entry) {
+                  final draw = entry.value;
+                  return Padding(
+                    padding: EdgeInsets.only(bottom: entry.key < completed.length - 1 ? 12 : 0),
+                    child: _buildDrawItem(draw.denomination, draw.drawDate, draw.city, draw.firstPrize, isTablet: isTablet),
+                  );
+                }).toList(),
+              );
+            },
+          ),
+        ],
       ),
     );
   }
 
-  Widget _buildDrawItem(String denom, String date, String city, String winner) {
+  Widget _buildDrawItem(String denom, String date, String city, String winner, {bool isTablet = false}) {
     return Container(
       decoration: BoxDecoration(
         gradient: const LinearGradient(
@@ -453,23 +523,26 @@ class _HomeScreenState extends State<HomeScreen> {
         borderRadius: BorderRadius.circular(16),
         border: Border.all(color: const Color(0xFFE5E7EB)),
       ),
-      padding: const EdgeInsets.all(16),
+      padding: EdgeInsets.all(isTablet ? 18 : 16),
       child: Column(
         children: [
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    denom,
-                    style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600, color: Color(0xFF1F2937)),
-                  ),
-                  const SizedBox(height: 4),
-                  Text('$city • $date', style: const TextStyle(fontSize: 12, color: Color(0xFF6B7280))),
-                ],
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      denom,
+                      style: TextStyle(fontSize: isTablet ? 17 : 16, fontWeight: FontWeight.w600, color: const Color(0xFF1F2937)),
+                    ),
+                    const SizedBox(height: 4),
+                    Text('$city • $date', style: const TextStyle(fontSize: 12, color: Color(0xFF6B7280))),
+                  ],
+                ),
               ),
+              const SizedBox(width: 8),
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                 decoration: BoxDecoration(
@@ -477,6 +550,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   borderRadius: BorderRadius.circular(12),
                 ),
                 child: const Row(
+                  mainAxisSize: MainAxisSize.min,
                   children: [
                     Icon(Icons.emoji_events, size: 14, color: Colors.white),
                     SizedBox(width: 4),
@@ -491,12 +565,36 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
           const SizedBox(height: 12),
           Container(
+            width: double.infinity,
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
             decoration: BoxDecoration(color: Colors.white.withOpacity(0.6), borderRadius: BorderRadius.circular(8)),
             child: Text(
               winner,
               style: const TextStyle(fontSize: 14, fontFamily: 'monospace', color: Color(0xFF6B7280)),
             ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildEmptyState(IconData icon, String message) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF9FAFB),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: const Color(0xFFE5E7EB)),
+      ),
+      child: Column(
+        children: [
+          Icon(icon, size: 40, color: Colors.grey[300]),
+          const SizedBox(height: 8),
+          Text(
+            message,
+            style: TextStyle(fontSize: 13, color: Colors.grey[500]),
+            textAlign: TextAlign.center,
           ),
         ],
       ),

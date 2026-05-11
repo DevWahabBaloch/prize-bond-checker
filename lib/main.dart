@@ -1,5 +1,12 @@
 import 'package:flutter/material.dart';
+import 'package:hive_flutter/hive_flutter.dart';
 import 'package:prize_bond_checking_app/services/notification_service.dart';
+import 'models/draw_result_model.dart';
+import 'models/bond_model.dart';
+import 'models/check_record_model.dart';
+import 'models/notification_model.dart';
+import 'models/listing_model.dart';
+import 'services/draw_service.dart';
 import 'screens/auth/landing_screen.dart';
 import 'screens/auth/pending_approval_screen.dart';
 import 'screens/auth/pin_screen.dart';
@@ -7,8 +14,29 @@ import 'services/auth_service.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
+  await Hive.initFlutter();
+  Hive.registerAdapter(DrawResultAdapter());
+  Hive.registerAdapter(BondAdapter());
+  Hive.registerAdapter(CheckRecordAdapter());
+  Hive.registerAdapter(NotificationModelAdapter());
+  Hive.registerAdapter(ListingAdapter());
+
+  await Hive.openBox<DrawResult>('draws');
+  await Hive.openBox<Bond>('bonds');
+  await Hive.openBox<CheckRecord>('check_history');
+  await Hive.openBox<NotificationModel>('notifications');
+  await Hive.openBox<Listing>('listings');
+
+  await DrawService().seedIfEmpty();
+
   await NotificationService().init();
+
   runApp(const PrizeBondApp());
+
+  WidgetsBinding.instance.addPostFrameCallback((_) async {
+    await DrawService().autoCheckAllBonds();
+  });
 }
 
 class PrizeBondApp extends StatelessWidget {

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:mobile_scanner/mobile_scanner.dart';
 
 class ScannerScreen extends StatefulWidget {
   const ScannerScreen({super.key});
@@ -8,11 +9,19 @@ class ScannerScreen extends StatefulWidget {
 }
 
 class _ScannerScreenState extends State<ScannerScreen> {
+  final MobileScannerController _controller = MobileScannerController();
   bool _isScanning = false;
   String? _scannedNumber;
   bool _isFlashOn = false;
 
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
   void _toggleFlash() {
+    _controller.toggleTorch();
     setState(() {
       _isFlashOn = !_isFlashOn;
     });
@@ -23,8 +32,11 @@ class _ScannerScreenState extends State<ScannerScreen> {
       _isScanning = true;
       _scannedNumber = null;
     });
-    // TODO: Integrate real camera/OCR scanning (e.g., mobile_scanner or camera plugin)
-    // On successful scan, call _onScanSuccess(scannedNumber)
+  }
+
+  void _stopScanning() {
+    _controller.stop();
+    setState(() => _isScanning = false);
   }
 
   @override
@@ -60,7 +72,6 @@ class _ScannerScreenState extends State<ScannerScreen> {
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  // Scanner viewfinder box
                   Container(
                     width: 300,
                     height: 200,
@@ -77,9 +88,17 @@ class _ScannerScreenState extends State<ScannerScreen> {
                   ),
                   const SizedBox(height: 24),
                   Text(
-                    _isScanning ? 'Scanning...' : 'Position bond number within frame',
+                    _isScanning ? 'Point at bond number to scan...' : 'Position bond number within frame',
                     style: const TextStyle(color: Colors.white, fontSize: 16),
                   ),
+                  if (_isScanning) ...[
+                    const SizedBox(height: 12),
+                    TextButton.icon(
+                      onPressed: _stopScanning,
+                      icon: const Icon(Icons.stop_circle_outlined, color: Colors.white60),
+                      label: const Text('Cancel Scan', style: TextStyle(color: Colors.white60)),
+                    ),
+                  ],
                   if (_scannedNumber != null) ...[
                     const SizedBox(height: 24),
                     Container(
@@ -113,7 +132,6 @@ class _ScannerScreenState extends State<ScannerScreen> {
             ),
           ),
 
-          // Bottom button
           Positioned(
             bottom: 40,
             left: 0,
@@ -143,20 +161,23 @@ class _ScannerScreenState extends State<ScannerScreen> {
   }
 
   Widget _buildScanningView() {
-    return Container(
-      color: Colors.black87,
-      child: const Center(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            CircularProgressIndicator(color: Color(0xFF2D5BFF)),
-            SizedBox(height: 16),
-            Text('Camera initializing...', style: TextStyle(color: Colors.white70, fontSize: 14)),
-            SizedBox(height: 8),
-            Text('Point at bond number', style: TextStyle(color: Colors.white54, fontSize: 12)),
-          ],
-        ),
-      ),
+    return MobileScanner(
+      controller: _controller,
+      onDetect: (capture) {
+        final barcode = capture.barcodes.firstOrNull;
+        if (barcode?.rawValue == null) return;
+
+        final raw = barcode!.rawValue!;
+        final digitsOnly = raw.replaceAll(RegExp(r'[^0-9]'), '');
+
+        if (digitsOnly.length >= 6) {
+          _controller.stop();
+          setState(() {
+            _isScanning = false;
+            _scannedNumber = digitsOnly.substring(0, 6);
+          });
+        }
+      },
     );
   }
 }

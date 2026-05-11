@@ -1,9 +1,13 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:hive_flutter/hive_flutter.dart';
+import 'package:intl/intl.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:open_file/open_file.dart';
+import 'package:prize_bond_checking_app/models/draw_result_model.dart';
+import 'package:prize_bond_checking_app/services/notification_service.dart';
 
 class HistoryScreen extends StatefulWidget {
   const HistoryScreen({super.key});
@@ -16,115 +20,31 @@ class _HistoryScreenState extends State<HistoryScreen> with SingleTickerProvider
   late TabController _tabController;
   String _selectedDenomination = 'All';
   String _selectedCity = 'All';
+  DateTime? _fromDate;
+  DateTime? _toDate;
   bool _isDownloading = false;
 
-  final List<String> denominations = ['All', 'Rs. 100', 'Rs. 200', 'Rs. 750', 'Rs. 1500', 'Rs. 7500', 'Rs. 15000'];
-  final List<String> cities = ['All', 'Lahore', 'Karachi', 'Islamabad', 'Rawalpindi', 'Multan', 'Faisalabad'];
-
-  final List<Map<String, dynamic>> pastDraws = [
-    {
-      'denomination': 'Rs. 1500',
-      'date': 'January 15, 2026',
-      'city': 'Lahore',
-      'firstPrize': '654321',
-      'firstPrizeAmount': 'Rs. 3,000,000',
-      'secondPrize': '321654',
-      'secondPrizeAmount': 'Rs. 1,500,000',
-      'thirdPrize': '111222',
-      'thirdPrizeAmount': 'Rs. 93,000',
-      'drawNumber': '98',
-      'totalPrizes': '1,696',
-    },
-    {
-      'denomination': 'Rs. 750',
-      'date': 'January 10, 2026',
-      'city': 'Karachi',
-      'firstPrize': '987654',
-      'firstPrizeAmount': 'Rs. 1,500,000',
-      'secondPrize': '456789',
-      'secondPrizeAmount': 'Rs. 500,000',
-      'thirdPrize': '789456',
-      'thirdPrizeAmount': 'Rs. 9,300',
-      'drawNumber': '97',
-      'totalPrizes': '1,696',
-    },
-    {
-      'denomination': 'Rs. 200',
-      'date': 'January 05, 2026',
-      'city': 'Islamabad',
-      'firstPrize': '456789',
-      'firstPrizeAmount': 'Rs. 750,000',
-      'secondPrize': '987123',
-      'secondPrizeAmount': 'Rs. 250,000',
-      'thirdPrize': '654987',
-      'thirdPrizeAmount': 'Rs. 1,250',
-      'drawNumber': '96',
-      'totalPrizes': '1,130',
-    },
-    {
-      'denomination': 'Rs. 1500',
-      'date': 'December 15, 2025',
-      'city': 'Rawalpindi',
-      'firstPrize': '234567',
-      'firstPrizeAmount': 'Rs. 3,000,000',
-      'secondPrize': '765432',
-      'secondPrizeAmount': 'Rs. 1,500,000',
-      'thirdPrize': '112233',
-      'thirdPrizeAmount': 'Rs. 93,000',
-      'drawNumber': '95',
-      'totalPrizes': '1,696',
-    },
-    {
-      'denomination': 'Rs. 7500',
-      'date': 'December 10, 2025',
-      'city': 'Multan',
-      'firstPrize': '890123',
-      'firstPrizeAmount': 'Rs. 15,000,000',
-      'secondPrize': '321098',
-      'secondPrizeAmount': 'Rs. 5,000,000',
-      'thirdPrize': '445566',
-      'thirdPrizeAmount': 'Rs. 93,000',
-      'drawNumber': '94',
-      'totalPrizes': '1,696',
-    },
-    {
-      'denomination': 'Rs. 100',
-      'date': 'December 01, 2025',
-      'city': 'Faisalabad',
-      'firstPrize': '567890',
-      'firstPrizeAmount': 'Rs. 700,000',
-      'secondPrize': '098765',
-      'secondPrizeAmount': 'Rs. 200,000',
-      'thirdPrize': '334455',
-      'thirdPrizeAmount': 'Rs. 1,000',
-      'drawNumber': '93',
-      'totalPrizes': '1,199',
-    },
+  final List<String> denominations = [
+    'All',
+    'Rs. 100',
+    'Rs. 200',
+    'Rs. 750',
+    'Rs. 1500',
+    'Rs. 7500',
+    'Rs. 15000',
+    'Rs. 25000',
+    'Rs. 40000',
   ];
-
-  final List<Map<String, dynamic>> upcomingDraws = [
-    {'denomination': 'Rs. 200', 'date': 'January 20, 2026', 'city': 'Lahore', 'daysLeft': '3', 'estimatedPrize': 'Rs. 750,000'},
-    {
-      'denomination': 'Rs. 1500',
-      'date': 'February 15, 2026',
-      'city': 'Karachi',
-      'daysLeft': '29',
-      'estimatedPrize': 'Rs. 3,000,000',
-    },
-    {
-      'denomination': 'Rs. 750',
-      'date': 'February 20, 2026',
-      'city': 'Islamabad',
-      'daysLeft': '34',
-      'estimatedPrize': 'Rs. 1,500,000',
-    },
-    {
-      'denomination': 'Rs. 15000',
-      'date': 'March 01, 2026',
-      'city': 'Rawalpindi',
-      'daysLeft': '43',
-      'estimatedPrize': 'Rs. 30,000,000',
-    },
+  final List<String> cities = [
+    'All',
+    'Lahore',
+    'Karachi',
+    'Islamabad',
+    'Rawalpindi',
+    'Multan',
+    'Faisalabad',
+    'Hyderabad',
+    'Quetta',
   ];
 
   @override
@@ -139,15 +59,42 @@ class _HistoryScreenState extends State<HistoryScreen> with SingleTickerProvider
     super.dispose();
   }
 
-  List<Map<String, dynamic>> get filteredDraws {
-    return pastDraws.where((draw) {
-      final matchesDenom = _selectedDenomination == 'All' || draw['denomination'] == _selectedDenomination;
-      final matchesCity = _selectedCity == 'All' || draw['city'] == _selectedCity;
-      return matchesDenom && matchesCity;
+  List<DrawResult> _filteredCompleted(List<DrawResult> all) {
+    return all.where((d) {
+      final matchesDenom = _selectedDenomination == 'All' || d.denomination == _selectedDenomination;
+      final matchesCity = _selectedCity == 'All' || d.city == _selectedCity;
+      final matchesDate =
+          (_fromDate == null && _toDate == null) ||
+          (() {
+            try {
+              final drawDt = DateFormat('MMMM d, yyyy').parse(d.drawDate);
+              final afterFrom = _fromDate == null || !drawDt.isBefore(_fromDate!);
+              final beforeTo = _toDate == null || !drawDt.isAfter(_toDate!);
+              return afterFrom && beforeTo;
+            } catch (_) {
+              return true;
+            }
+          })();
+      return matchesDenom && matchesCity && matchesDate;
     }).toList();
   }
 
-  // ─── PDF Generation ──────────────────────────────────────────────────────────
+  bool get _isDateFilterActive => _fromDate != null || _toDate != null;
+  bool get _isAnyFilterActive => _selectedDenomination != 'All' || _selectedCity != 'All' || _isDateFilterActive;
+
+  Map<String, dynamic> _drawToMap(DrawResult d) => {
+    'drawNumber': d.drawNumber,
+    'denomination': d.denomination,
+    'date': d.drawDate,
+    'city': d.city,
+    'firstPrize': d.firstPrize,
+    'firstPrizeAmount': d.firstPrizeAmount,
+    'secondPrize': d.secondPrize ?? 'N/A',
+    'secondPrizeAmount': d.secondPrizeAmount ?? 'N/A',
+    'thirdPrize': d.thirdPrize ?? 'N/A',
+    'thirdPrizeAmount': d.thirdPrizeAmount ?? 'N/A',
+    'totalPrizes': d.totalPrizes,
+  };
 
   Future<void> _downloadPDF(Map<String, dynamic> draw) async {
     setState(() => _isDownloading = true);
@@ -155,7 +102,6 @@ class _HistoryScreenState extends State<HistoryScreen> with SingleTickerProvider
     try {
       final pdf = pw.Document();
 
-      // ── Color palette ──
       final headerBlue = PdfColor.fromHex('#2D5BFF');
       final accentPurple = PdfColor.fromHex('#8B5CF6');
       final goldColor = PdfColor.fromHex('#F59E0B');
@@ -173,7 +119,6 @@ class _HistoryScreenState extends State<HistoryScreen> with SingleTickerProvider
             return pw.Column(
               crossAxisAlignment: pw.CrossAxisAlignment.start,
               children: [
-                // ── Header banner ──
                 pw.Container(
                   width: double.infinity,
                   decoration: pw.BoxDecoration(
@@ -208,7 +153,6 @@ class _HistoryScreenState extends State<HistoryScreen> with SingleTickerProvider
 
                 pw.SizedBox(height: 20),
 
-                // ── Draw info row ──
                 pw.Row(
                   children: [
                     _infoBox('Date', draw['date'], grayText, lightGray, borderGray, darkText),
@@ -221,14 +165,12 @@ class _HistoryScreenState extends State<HistoryScreen> with SingleTickerProvider
 
                 pw.SizedBox(height: 20),
 
-                // ── Prize section label ──
                 pw.Text(
                   'Prize Winners',
                   style: pw.TextStyle(fontSize: 16, fontWeight: pw.FontWeight.bold, color: darkText),
                 ),
                 pw.SizedBox(height: 12),
 
-                // ── 1st Prize ──
                 _prizeCard(
                   rank: '1st Prize',
                   amount: draw['firstPrizeAmount'],
@@ -240,7 +182,6 @@ class _HistoryScreenState extends State<HistoryScreen> with SingleTickerProvider
 
                 pw.SizedBox(height: 10),
 
-                // ── 2nd Prize ──
                 _prizeCard(
                   rank: '2nd Prize',
                   amount: draw['secondPrizeAmount'] ?? 'N/A',
@@ -252,7 +193,6 @@ class _HistoryScreenState extends State<HistoryScreen> with SingleTickerProvider
 
                 pw.SizedBox(height: 10),
 
-                // ── 3rd Prize ──
                 _prizeCard(
                   rank: '3rd Prize',
                   amount: draw['thirdPrizeAmount'] ?? 'N/A',
@@ -264,7 +204,6 @@ class _HistoryScreenState extends State<HistoryScreen> with SingleTickerProvider
 
                 pw.SizedBox(height: 24),
 
-                // ── Offline notice ──
                 pw.Container(
                   width: double.infinity,
                   decoration: pw.BoxDecoration(
@@ -293,7 +232,6 @@ class _HistoryScreenState extends State<HistoryScreen> with SingleTickerProvider
 
                 pw.Spacer(),
 
-                // ── Footer ──
                 pw.Divider(color: borderGray),
                 pw.SizedBox(height: 8),
                 pw.Row(
@@ -315,7 +253,6 @@ class _HistoryScreenState extends State<HistoryScreen> with SingleTickerProvider
         ),
       );
 
-      // ── Save to device ──
       final directory = await getApplicationDocumentsDirectory();
       final fileName = 'Draw_${draw['drawNumber']}_${draw['denomination'].replaceAll('.', '').replaceAll(' ', '_')}.pdf';
       final filePath = '${directory.path}/$fileName';
@@ -325,7 +262,6 @@ class _HistoryScreenState extends State<HistoryScreen> with SingleTickerProvider
       setState(() => _isDownloading = false);
 
       if (mounted) {
-        // Open the PDF immediately
         await OpenFile.open(filePath);
 
         ScaffoldMessenger.of(context).showSnackBar(
@@ -356,8 +292,6 @@ class _HistoryScreenState extends State<HistoryScreen> with SingleTickerProvider
       }
     }
   }
-
-  // ── PDF widget helpers ────────────────────────────────────────────────────────
 
   pw.Widget _pdfChip(String text, PdfColor textColor, PdfColor bg) {
     return pw.Container(
@@ -432,19 +366,38 @@ class _HistoryScreenState extends State<HistoryScreen> with SingleTickerProvider
     );
   }
 
-  // ─── Reminder ────────────────────────────────────────────────────────────────
+  Future<void> _setReminder(Map<String, dynamic> draw) async {
+    DateTime drawDateTime;
+    try {
+      drawDateTime = DateFormat('MMMM d, yyyy').parse(draw['date'] as String);
+    } catch (_) {
+      drawDateTime = DateTime.now().add(const Duration(days: 1));
+    }
 
-  void _setReminder(Map<String, dynamic> draw) {
+    await NotificationService().showScheduledDrawReminder(
+      denomination: draw['denomination'] as String,
+      date: draw['date'] as String,
+      city: draw['city'] as String,
+      drawDateTime: drawDateTime,
+    );
+
+    if (!mounted) return;
+
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Text('Reminder set for ${draw['denomination']} draw on ${draw['date']}'),
+        content: Row(
+          children: [
+            const Icon(Icons.notifications_active, color: Colors.white, size: 18),
+            const SizedBox(width: 8),
+            Expanded(child: Text('Reminder set for ${draw['denomination']} draw on ${draw['date']}')),
+          ],
+        ),
         backgroundColor: const Color(0xFF10B981),
         behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       ),
     );
   }
-
-  // ─── Build ───────────────────────────────────────────────────────────────────
 
   @override
   Widget build(BuildContext context) {
@@ -461,7 +414,6 @@ class _HistoryScreenState extends State<HistoryScreen> with SingleTickerProvider
               ),
             ],
           ),
-          // Loading overlay while PDF generates
           if (_isDownloading)
             Container(
               color: Colors.black.withOpacity(0.4),
@@ -522,9 +474,28 @@ class _HistoryScreenState extends State<HistoryScreen> with SingleTickerProvider
 
                 const Spacer(),
 
-                IconButton(
-                  icon: const Icon(Icons.filter_list_rounded, color: Colors.white),
-                  onPressed: _showFilterDialog,
+                Stack(
+                  clipBehavior: Clip.none,
+                  children: [
+                    IconButton(
+                      icon: const Icon(Icons.filter_list_rounded, color: Colors.white),
+                      onPressed: _showFilterDialog,
+                    ),
+                    if (_isAnyFilterActive)
+                      Positioned(
+                        top: 8,
+                        right: 8,
+                        child: Container(
+                          width: 8,
+                          height: 8,
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFFBBF24),
+                            shape: BoxShape.circle,
+                            border: Border.all(color: Colors.white, width: 1.5),
+                          ),
+                        ),
+                      ),
+                  ],
                 ),
               ],
             ),
@@ -557,20 +528,36 @@ class _HistoryScreenState extends State<HistoryScreen> with SingleTickerProvider
   }
 
   Widget _buildPastDrawsTab() {
-    return filteredDraws.isEmpty
-        ? _buildEmptyState()
-        : ListView.builder(
-            padding: const EdgeInsets.all(20),
-            itemCount: filteredDraws.length,
-            itemBuilder: (context, index) => _buildPastDrawCard(filteredDraws[index]),
-          );
+    return ValueListenableBuilder(
+      valueListenable: Hive.box<DrawResult>('draws').listenable(),
+      builder: (context, Box<DrawResult> box, _) {
+        final all = box.values.where((d) => d.status == 'completed').toList();
+        final filtered = _filteredCompleted(all);
+        return filtered.isEmpty
+            ? _buildEmptyState()
+            : ListView.builder(
+                padding: const EdgeInsets.all(20),
+                itemCount: filtered.length,
+                itemBuilder: (context, index) => _buildPastDrawCard(_drawToMap(filtered[index])),
+              );
+      },
+    );
   }
 
   Widget _buildUpcomingDrawsTab() {
-    return ListView.builder(
-      padding: const EdgeInsets.all(20),
-      itemCount: upcomingDraws.length,
-      itemBuilder: (context, index) => _buildUpcomingDrawCard(upcomingDraws[index]),
+    return ValueListenableBuilder(
+      valueListenable: Hive.box<DrawResult>('draws').listenable(),
+      builder: (context, Box<DrawResult> box, _) {
+        final upcoming = box.values.where((d) => d.status == 'upcoming' || d.status == 'today').toList();
+        if (upcoming.isEmpty) {
+          return _buildEmptyState();
+        }
+        return ListView.builder(
+          padding: const EdgeInsets.all(20),
+          itemCount: upcoming.length,
+          itemBuilder: (context, index) => _buildUpcomingDrawCard(upcoming[index]),
+        );
+      },
     );
   }
 
@@ -705,7 +692,7 @@ class _HistoryScreenState extends State<HistoryScreen> with SingleTickerProvider
     );
   }
 
-  Widget _buildUpcomingDrawCard(Map<String, dynamic> draw) {
+  Widget _buildUpcomingDrawCard(DrawResult draw) {
     return Container(
       margin: const EdgeInsets.only(bottom: 16),
       decoration: BoxDecoration(
@@ -733,13 +720,13 @@ class _HistoryScreenState extends State<HistoryScreen> with SingleTickerProvider
                         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                         decoration: BoxDecoration(color: const Color(0xFF2D5BFF), borderRadius: BorderRadius.circular(8)),
                         child: Text(
-                          draw['denomination'],
+                          draw.denomination,
                           style: const TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.w600),
                         ),
                       ),
                       const SizedBox(height: 8),
                       Text(
-                        draw['date'],
+                        draw.drawDate,
                         style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600, color: Color(0xFF1F2937)),
                       ),
                       const SizedBox(height: 4),
@@ -747,7 +734,7 @@ class _HistoryScreenState extends State<HistoryScreen> with SingleTickerProvider
                         children: [
                           const Icon(Icons.location_on, size: 14, color: Color(0xFF6B7280)),
                           const SizedBox(width: 4),
-                          Text(draw['city'], style: const TextStyle(fontSize: 13, color: Color(0xFF6B7280))),
+                          Text(draw.city, style: const TextStyle(fontSize: 13, color: Color(0xFF6B7280))),
                         ],
                       ),
                     ],
@@ -762,10 +749,13 @@ class _HistoryScreenState extends State<HistoryScreen> with SingleTickerProvider
                   child: Column(
                     children: [
                       Text(
-                        draw['daysLeft'],
+                        draw.status == 'today' ? '0' : '${draw.daysLeft}',
                         style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: Colors.white),
                       ),
-                      const Text('Days Left', style: TextStyle(fontSize: 11, color: Colors.white)),
+                      Text(
+                        draw.status == 'today' ? 'Today!' : 'Days Left',
+                        style: const TextStyle(fontSize: 11, color: Colors.white),
+                      ),
                     ],
                   ),
                 ),
@@ -797,7 +787,7 @@ class _HistoryScreenState extends State<HistoryScreen> with SingleTickerProvider
                     ],
                   ),
                   Text(
-                    draw['estimatedPrize'],
+                    draw.firstPrizeAmount,
                     style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Color(0xFF1F2937)),
                   ),
                 ],
@@ -807,7 +797,7 @@ class _HistoryScreenState extends State<HistoryScreen> with SingleTickerProvider
             SizedBox(
               width: double.infinity,
               child: OutlinedButton.icon(
-                onPressed: () => _setReminder(draw),
+                onPressed: () => _setReminder(_drawToMap(draw)),
                 icon: const Icon(Icons.notifications_outlined, size: 16),
                 label: const Text('Set Reminder'),
                 style: OutlinedButton.styleFrom(
@@ -846,6 +836,8 @@ class _HistoryScreenState extends State<HistoryScreen> with SingleTickerProvider
             onPressed: () => setState(() {
               _selectedDenomination = 'All';
               _selectedCity = 'All';
+              _fromDate = null;
+              _toDate = null;
             }),
             style: ElevatedButton.styleFrom(
               backgroundColor: const Color(0xFF2D5BFF),
@@ -861,6 +853,9 @@ class _HistoryScreenState extends State<HistoryScreen> with SingleTickerProvider
   }
 
   void _showFilterDialog() {
+    DateTime? localFrom = _fromDate;
+    DateTime? localTo = _toDate;
+
     showModalBottomSheet(
       context: context,
       backgroundColor: Colors.transparent,
@@ -872,118 +867,286 @@ class _HistoryScreenState extends State<HistoryScreen> with SingleTickerProvider
             borderRadius: BorderRadius.only(topLeft: Radius.circular(24), topRight: Radius.circular(24)),
           ),
           padding: const EdgeInsets.all(24),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  const Text(
-                    'Filter Draws',
-                    style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Color(0xFF1F2937)),
-                  ),
-                  IconButton(icon: const Icon(Icons.close), onPressed: () => Navigator.pop(context)),
-                ],
-              ),
-              const SizedBox(height: 24),
-              const Text(
-                'Denomination',
-                style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: Color(0xFF6B7280)),
-              ),
-              const SizedBox(height: 12),
-              Wrap(
-                spacing: 8,
-                runSpacing: 8,
-                children: denominations.map((d) {
-                  final sel = _selectedDenomination == d;
-                  return FilterChip(
-                    label: Text(d),
-                    selected: sel,
-                    onSelected: (_) {
-                      setModalState(() => _selectedDenomination = d);
-                      setState(() => _selectedDenomination = d);
-                    },
-                    backgroundColor: Colors.white,
-                    selectedColor: const Color(0xFFEFF6FF),
-                    labelStyle: TextStyle(
-                      color: sel ? const Color(0xFF2D5BFF) : const Color(0xFF6B7280),
-                      fontWeight: sel ? FontWeight.w600 : FontWeight.normal,
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    const Text(
+                      'Filter Draws',
+                      style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Color(0xFF1F2937)),
                     ),
-                    side: BorderSide(color: sel ? const Color(0xFF2D5BFF) : const Color(0xFFE5E7EB)),
-                  );
-                }).toList(),
-              ),
-              const SizedBox(height: 24),
-              const Text(
-                'City',
-                style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: Color(0xFF6B7280)),
-              ),
-              const SizedBox(height: 12),
-              Wrap(
-                spacing: 8,
-                runSpacing: 8,
-                children: cities.map((c) {
-                  final sel = _selectedCity == c;
-                  return FilterChip(
-                    label: Text(c),
-                    selected: sel,
-                    onSelected: (_) {
-                      setModalState(() => _selectedCity = c);
-                      setState(() => _selectedCity = c);
-                    },
-                    backgroundColor: Colors.white,
-                    selectedColor: const Color(0xFFEFF6FF),
-                    labelStyle: TextStyle(
-                      color: sel ? const Color(0xFF2D5BFF) : const Color(0xFF6B7280),
-                      fontWeight: sel ? FontWeight.w600 : FontWeight.normal,
-                    ),
-                    side: BorderSide(color: sel ? const Color(0xFF2D5BFF) : const Color(0xFFE5E7EB)),
-                  );
-                }).toList(),
-              ),
-              const SizedBox(height: 24),
-              Row(
-                children: [
-                  Expanded(
-                    child: OutlinedButton(
-                      onPressed: () {
-                        setModalState(() {
-                          _selectedDenomination = 'All';
-                          _selectedCity = 'All';
-                        });
-                        setState(() {
-                          _selectedDenomination = 'All';
-                          _selectedCity = 'All';
-                        });
+                    IconButton(icon: const Icon(Icons.close), onPressed: () => Navigator.pop(context)),
+                  ],
+                ),
+                const SizedBox(height: 24),
+
+                const Text(
+                  'Denomination',
+                  style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: Color(0xFF6B7280)),
+                ),
+                const SizedBox(height: 12),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: denominations.map((d) {
+                    final sel = _selectedDenomination == d;
+                    return FilterChip(
+                      label: Text(d),
+                      selected: sel,
+                      onSelected: (_) {
+                        setModalState(() => _selectedDenomination = d);
+                        setState(() => _selectedDenomination = d);
                       },
-                      style: OutlinedButton.styleFrom(
-                        foregroundColor: const Color(0xFF6B7280),
-                        side: const BorderSide(color: Color(0xFFE5E7EB)),
-                        padding: const EdgeInsets.symmetric(vertical: 16),
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                      backgroundColor: Colors.white,
+                      selectedColor: const Color(0xFFEFF6FF),
+                      labelStyle: TextStyle(
+                        color: sel ? const Color(0xFF2D5BFF) : const Color(0xFF6B7280),
+                        fontWeight: sel ? FontWeight.w600 : FontWeight.normal,
                       ),
-                      child: const Text('Reset'),
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    flex: 2,
-                    child: ElevatedButton(
-                      onPressed: () => Navigator.pop(context),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: const Color(0xFF2D5BFF),
-                        foregroundColor: Colors.white,
-                        padding: const EdgeInsets.symmetric(vertical: 16),
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                      side: BorderSide(color: sel ? const Color(0xFF2D5BFF) : const Color(0xFFE5E7EB)),
+                    );
+                  }).toList(),
+                ),
+                const SizedBox(height: 24),
+
+                const Text(
+                  'City',
+                  style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: Color(0xFF6B7280)),
+                ),
+                const SizedBox(height: 12),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: cities.map((c) {
+                    final sel = _selectedCity == c;
+                    return FilterChip(
+                      label: Text(c),
+                      selected: sel,
+                      onSelected: (_) {
+                        setModalState(() => _selectedCity = c);
+                        setState(() => _selectedCity = c);
+                      },
+                      backgroundColor: Colors.white,
+                      selectedColor: const Color(0xFFEFF6FF),
+                      labelStyle: TextStyle(
+                        color: sel ? const Color(0xFF2D5BFF) : const Color(0xFF6B7280),
+                        fontWeight: sel ? FontWeight.w600 : FontWeight.normal,
                       ),
-                      child: const Text('Apply Filters'),
+                      side: BorderSide(color: sel ? const Color(0xFF2D5BFF) : const Color(0xFFE5E7EB)),
+                    );
+                  }).toList(),
+                ),
+                const SizedBox(height: 24),
+
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    const Text(
+                      'Date Range',
+                      style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: Color(0xFF6B7280)),
                     ),
-                  ),
-                ],
-              ),
-              SizedBox(height: MediaQuery.of(context).viewInsets.bottom),
-            ],
+                    if (localFrom != null || localTo != null)
+                      TextButton(
+                        onPressed: () {
+                          setModalState(() {
+                            localFrom = null;
+                            localTo = null;
+                          });
+                          setState(() {
+                            _fromDate = null;
+                            _toDate = null;
+                          });
+                        },
+                        style: TextButton.styleFrom(
+                          foregroundColor: const Color(0xFFEF4444),
+                          padding: EdgeInsets.zero,
+                          minimumSize: Size.zero,
+                          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                        ),
+                        child: const Text('Clear Dates', style: TextStyle(fontSize: 13)),
+                      ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                Row(
+                  children: [
+                    Expanded(
+                      child: GestureDetector(
+                        onTap: () async {
+                          final picked = await showDatePicker(
+                            context: context,
+                            initialDate: localFrom ?? DateTime.now(),
+                            firstDate: DateTime(2020),
+                            lastDate: DateTime(2030),
+                            builder: (context, child) => Theme(
+                              data: Theme.of(context).copyWith(
+                                colorScheme: const ColorScheme.light(
+                                  primary: Color(0xFF2D5BFF),
+                                  onPrimary: Colors.white,
+                                  surface: Colors.white,
+                                ),
+                              ),
+                              child: child!,
+                            ),
+                          );
+                          if (picked != null) {
+                            setModalState(() => localFrom = picked);
+                            setState(() => _fromDate = picked);
+                          }
+                        },
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+                          decoration: BoxDecoration(
+                            color: localFrom != null ? const Color(0xFFEFF6FF) : const Color(0xFFF9FAFB),
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(color: localFrom != null ? const Color(0xFF2D5BFF) : const Color(0xFFE5E7EB)),
+                          ),
+                          child: Row(
+                            children: [
+                              Icon(
+                                Icons.calendar_today_rounded,
+                                size: 16,
+                                color: localFrom != null ? const Color(0xFF2D5BFF) : const Color(0xFF9CA3AF),
+                              ),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    const Text('From', style: TextStyle(fontSize: 10, color: Color(0xFF9CA3AF))),
+                                    Text(
+                                      localFrom != null ? DateFormat('MMM d, yyyy').format(localFrom!) : 'Any',
+                                      style: TextStyle(
+                                        fontSize: 13,
+                                        fontWeight: FontWeight.w600,
+                                        color: localFrom != null ? const Color(0xFF2D5BFF) : const Color(0xFF6B7280),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+
+                    const SizedBox(width: 12),
+
+                    Expanded(
+                      child: GestureDetector(
+                        onTap: () async {
+                          final picked = await showDatePicker(
+                            context: context,
+                            initialDate: localTo ?? DateTime.now(),
+                            firstDate: DateTime(2020),
+                            lastDate: DateTime(2030),
+                            builder: (context, child) => Theme(
+                              data: Theme.of(context).copyWith(
+                                colorScheme: const ColorScheme.light(
+                                  primary: Color(0xFF2D5BFF),
+                                  onPrimary: Colors.white,
+                                  surface: Colors.white,
+                                ),
+                              ),
+                              child: child!,
+                            ),
+                          );
+                          if (picked != null) {
+                            setModalState(() => localTo = picked);
+                            setState(() => _toDate = picked);
+                          }
+                        },
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+                          decoration: BoxDecoration(
+                            color: localTo != null ? const Color(0xFFEFF6FF) : const Color(0xFFF9FAFB),
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(color: localTo != null ? const Color(0xFF2D5BFF) : const Color(0xFFE5E7EB)),
+                          ),
+                          child: Row(
+                            children: [
+                              Icon(
+                                Icons.calendar_today_rounded,
+                                size: 16,
+                                color: localTo != null ? const Color(0xFF2D5BFF) : const Color(0xFF9CA3AF),
+                              ),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    const Text('To', style: TextStyle(fontSize: 10, color: Color(0xFF9CA3AF))),
+                                    Text(
+                                      localTo != null ? DateFormat('MMM d, yyyy').format(localTo!) : 'Any',
+                                      style: TextStyle(
+                                        fontSize: 13,
+                                        fontWeight: FontWeight.w600,
+                                        color: localTo != null ? const Color(0xFF2D5BFF) : const Color(0xFF6B7280),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 24),
+
+                Row(
+                  children: [
+                    Expanded(
+                      child: OutlinedButton(
+                        onPressed: () {
+                          setModalState(() {
+                            _selectedDenomination = 'All';
+                            _selectedCity = 'All';
+                            localFrom = null;
+                            localTo = null;
+                          });
+                          setState(() {
+                            _selectedDenomination = 'All';
+                            _selectedCity = 'All';
+                            _fromDate = null;
+                            _toDate = null;
+                          });
+                        },
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: const Color(0xFF6B7280),
+                          side: const BorderSide(color: Color(0xFFE5E7EB)),
+                          padding: const EdgeInsets.symmetric(vertical: 16),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                        ),
+                        child: const Text('Reset'),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      flex: 2,
+                      child: ElevatedButton(
+                        onPressed: () => Navigator.pop(context),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: const Color(0xFF2D5BFF),
+                          foregroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(vertical: 16),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                        ),
+                        child: const Text('Apply Filters'),
+                      ),
+                    ),
+                  ],
+                ),
+                SizedBox(height: MediaQuery.of(context).viewInsets.bottom),
+              ],
+            ),
           ),
         ),
       ),
@@ -1003,7 +1166,6 @@ class _HistoryScreenState extends State<HistoryScreen> with SingleTickerProvider
         ),
         child: Column(
           children: [
-            // Sheet header
             Container(
               padding: const EdgeInsets.all(24),
               decoration: const BoxDecoration(
@@ -1034,7 +1196,6 @@ class _HistoryScreenState extends State<HistoryScreen> with SingleTickerProvider
                 ],
               ),
             ),
-            // Sheet body
             Expanded(
               child: SingleChildScrollView(
                 padding: const EdgeInsets.all(24),
@@ -1052,7 +1213,6 @@ class _HistoryScreenState extends State<HistoryScreen> with SingleTickerProvider
                     _buildInfoRow('2nd Prize Amount', draw['secondPrizeAmount'] ?? 'N/A', Icons.monetization_on),
                     _buildInfoRow('3rd Prize Amount', draw['thirdPrizeAmount'] ?? 'N/A', Icons.monetization_on),
                     const SizedBox(height: 24),
-                    // ── Download PDF button (real) ──────────────────────────
                     SizedBox(
                       width: double.infinity,
                       child: ElevatedButton.icon(
@@ -1070,7 +1230,6 @@ class _HistoryScreenState extends State<HistoryScreen> with SingleTickerProvider
                         ),
                       ),
                     ),
-                    // ── Share button REMOVED (not in requirements) ──────────
                   ],
                 ),
               ),

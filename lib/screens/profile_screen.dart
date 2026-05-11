@@ -1,7 +1,11 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:hive_flutter/hive_flutter.dart';
 import 'package:open_file/open_file.dart';
 import 'package:path_provider/path_provider.dart';
+import 'package:prize_bond_checking_app/models/bond_model.dart';
+import 'package:prize_bond_checking_app/models/check_record_model.dart';
+import 'package:prize_bond_checking_app/screens/check_history_screen.dart';
 import 'package:prize_bond_checking_app/screens/marketplace_screen.dart';
 import 'package:prize_bond_checking_app/screens/my_bonds_screen.dart';
 import 'package:prize_bond_checking_app/screens/history_screen.dart';
@@ -30,7 +34,12 @@ class _ProfileScreenState extends State<ProfileScreen> {
   @override
   void initState() {
     super.initState();
-    _loadUserProfile();
+    _loadAll();
+  }
+
+  Future<void> _loadAll() async {
+    await _loadUserProfile();
+    await _loadNotifPrefs();
   }
 
   Future<void> _loadUserProfile() async {
@@ -44,6 +53,22 @@ class _ProfileScreenState extends State<ProfileScreen> {
         _isLoading = false;
       });
     }
+  }
+
+  Future<void> _loadNotifPrefs() async {
+    final prefs = await AuthService.getAllNotifPrefs();
+    if (mounted) {
+      setState(() {
+        notificationsEnabled = prefs['all'] ?? true;
+        winAlertsEnabled = prefs['win'] ?? true;
+        drawRemindersEnabled = prefs['draw'] ?? true;
+        marketplaceAlertsEnabled = prefs['marketplace'] ?? false;
+      });
+    }
+  }
+
+  Future<void> _saveNotifPref(String key, bool value) async {
+    await AuthService.setNotifPref(key, value);
   }
 
   @override
@@ -72,8 +97,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
             ),
     );
   }
-
-  // ─── Header ──────────────────────────────────────────────────────────────────
 
   Widget _buildHeader() {
     return Container(
@@ -105,8 +128,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
       ),
     );
   }
-
-  // ─── Profile card ─────────────────────────────────────────────────────────────
 
   Widget _buildProfileCard() {
     final initials = _userName.isNotEmpty ? _userName.substring(0, 1).toUpperCase() : 'U';
@@ -206,42 +227,54 @@ class _ProfileScreenState extends State<ProfileScreen> {
     );
   }
 
-  // ─── Stats ────────────────────────────────────────────────────────────────────
-
   Widget _buildStatsSection() {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 20),
-      child: Container(
-        decoration: BoxDecoration(
-          gradient: const LinearGradient(
-            colors: [Color(0xFFEFF6FF), Color(0xFFFAF5FF)],
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-          ),
-          borderRadius: BorderRadius.circular(20),
-          border: Border.all(color: const Color(0xFFE5E7EB)),
-        ),
-        padding: const EdgeInsets.all(20),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text(
-              'My Statistics',
-              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Color(0xFF1F2937)),
-            ),
-            const SizedBox(height: 16),
-            Row(
-              children: [
-                Expanded(child: _buildStatCard('5', 'Saved Bonds', Icons.bookmark)),
-                const SizedBox(width: 12),
-                Expanded(child: _buildStatCard('12', 'Checks', Icons.search)),
-                const SizedBox(width: 12),
-                Expanded(child: _buildStatCard('0', 'Wins', Icons.emoji_events)),
-              ],
-            ),
-          ],
-        ),
-      ),
+    return ValueListenableBuilder(
+      valueListenable: Hive.box<Bond>('bonds').listenable(),
+      builder: (context, Box<Bond> bondsBox, _) {
+        return ValueListenableBuilder(
+          valueListenable: Hive.box<CheckRecord>('check_history').listenable(),
+          builder: (context, Box<CheckRecord> checksBox, _) {
+            final savedBonds = bondsBox.length;
+            final checks = checksBox.length;
+            final wins = bondsBox.values.where((b) => b.status == 'Won').length;
+
+            return Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 20),
+              child: Container(
+                decoration: BoxDecoration(
+                  gradient: const LinearGradient(
+                    colors: [Color(0xFFEFF6FF), Color(0xFFFAF5FF)],
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                  ),
+                  borderRadius: BorderRadius.circular(20),
+                  border: Border.all(color: const Color(0xFFE5E7EB)),
+                ),
+                padding: const EdgeInsets.all(20),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'My Statistics',
+                      style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Color(0xFF1F2937)),
+                    ),
+                    const SizedBox(height: 16),
+                    Row(
+                      children: [
+                        Expanded(child: _buildStatCard('$savedBonds', 'Saved Bonds', Icons.bookmark)),
+                        const SizedBox(width: 12),
+                        Expanded(child: _buildStatCard('$checks', 'Checks', Icons.search)),
+                        const SizedBox(width: 12),
+                        Expanded(child: _buildStatCard('$wins', 'Wins', Icons.emoji_events)),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            );
+          },
+        );
+      },
     );
   }
 
@@ -272,8 +305,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
     );
   }
 
-  // ─── Menu ─────────────────────────────────────────────────────────────────────
-
   Widget _buildMenuSection() {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 20),
@@ -285,7 +316,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
         ),
         child: Column(
           children: [
-            // ✅ Bond Management requirement
             _buildMenuItem(
               icon: Icons.bookmark_rounded,
               title: 'My Saved Bonds',
@@ -293,7 +323,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
               onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const MyBondsScreen())),
             ),
             _buildDivider(),
-            // ✅ Draw Updates / Search & Filter requirement
             _buildMenuItem(
               icon: Icons.history_rounded,
               title: 'Draw History',
@@ -301,7 +330,13 @@ class _ProfileScreenState extends State<ProfileScreen> {
               onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const HistoryScreen())),
             ),
             _buildDivider(),
-            // ✅ Buy & Sell Marketplace requirement
+            _buildMenuItem(
+              icon: Icons.manage_search_rounded,
+              title: 'Check History',
+              subtitle: 'View all your past bond checks',
+              onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const CheckHistoryScreen())),
+            ),
+            _buildDivider(),
             _buildMenuItem(
               icon: Icons.shopping_bag_rounded,
               title: 'My Marketplace Listings',
@@ -309,12 +344,46 @@ class _ProfileScreenState extends State<ProfileScreen> {
               onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const MarketplaceScreen())),
             ),
             _buildDivider(),
-            // ✅ Offline Checking requirement — opens real downloaded PDFs list
             _buildMenuItem(
               icon: Icons.download_done_rounded,
               title: 'Downloaded Results',
               subtitle: 'Offline draw lists saved on device',
               onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const DownloadedResultsScreen())),
+            ),
+            _buildDivider(),
+
+            _buildMenuItem(
+              icon: Icons.info_outline_rounded,
+              title: 'About This App',
+              subtitle: 'Data disclaimer & version info',
+              onTap: () {
+                showDialog(
+                  context: context,
+                  builder: (context) {
+                    return AlertDialog(
+                      title: const Text('Prize Bond Checker'),
+                      content: const Column(
+                        mainAxisSize: MainAxisSize.min,
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'DATA NOTICE: Draw data is simulated for demonstration '
+                            'purposes as approved by the project supervisor '
+                            '(Saeed Nasir). No official National Savings API is used.',
+                          ),
+                          SizedBox(height: 16),
+                          Text(
+                            'Supervisor: Saeed Nasir\n'
+                            'Institution: Virtual University of Pakistan',
+                            style: TextStyle(fontSize: 13),
+                          ),
+                        ],
+                      ),
+                      actions: [TextButton(onPressed: () => Navigator.pop(context), child: const Text('OK'))],
+                    );
+                  },
+                );
+              },
             ),
           ],
         ),
@@ -361,8 +430,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
     );
   }
 
-  // ─── Notification settings ────────────────────────────────────────────────────
-
   Widget _buildNotificationSettings() {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 20),
@@ -387,38 +454,46 @@ class _ProfileScreenState extends State<ProfileScreen> {
               ],
             ),
             const SizedBox(height: 20),
-            // ✅ Master toggle
             _buildSwitchTile(
               title: 'All Notifications',
               subtitle: 'Enable/disable all notifications',
               value: notificationsEnabled,
-              onChanged: (val) => setState(() => notificationsEnabled = val),
+              onChanged: (val) {
+                setState(() => notificationsEnabled = val);
+                _saveNotifPref('all', val);
+              },
             ),
             const SizedBox(height: 12),
-            // ✅ Win alerts — Alerts & Notifications requirement
             _buildSwitchTile(
               title: 'Win Alerts',
               subtitle: 'Get notified when your bond wins',
               value: winAlertsEnabled,
-              onChanged: (val) => setState(() => winAlertsEnabled = val),
+              onChanged: (val) {
+                setState(() => winAlertsEnabled = val);
+                _saveNotifPref('win', val);
+              },
               enabled: notificationsEnabled,
             ),
             const SizedBox(height: 12),
-            // ✅ Draw reminders — Alerts & Notifications requirement
             _buildSwitchTile(
               title: 'Draw Reminders',
               subtitle: 'Upcoming draw notifications',
               value: drawRemindersEnabled,
-              onChanged: (val) => setState(() => drawRemindersEnabled = val),
+              onChanged: (val) {
+                setState(() => drawRemindersEnabled = val);
+                _saveNotifPref('draw', val);
+              },
               enabled: notificationsEnabled,
             ),
             const SizedBox(height: 12),
-            // ✅ Marketplace alerts — Buy & Sell Marketplace requirement
             _buildSwitchTile(
               title: 'Marketplace Alerts',
               subtitle: 'Messages from buyers/sellers',
               value: marketplaceAlertsEnabled,
-              onChanged: (val) => setState(() => marketplaceAlertsEnabled = val),
+              onChanged: (val) {
+                setState(() => marketplaceAlertsEnabled = val);
+                _saveNotifPref('marketplace', val);
+              },
               enabled: notificationsEnabled,
             ),
           ],
@@ -469,8 +544,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
     );
   }
 
-  // ─── Logout ───────────────────────────────────────────────────────────────────
-
   Widget _buildLogoutButton() {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 20),
@@ -497,8 +570,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
       child: Divider(height: 1, color: Color(0xFFE5E7EB)),
     );
   }
-
-  // ─── Dialogs ─────────────────────────────────────────────────────────────────
 
   void _showEditProfileDialog() {
     final nameController = TextEditingController(text: _userName);
@@ -575,7 +646,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
               backgroundColor: const Color(0xFF2D5BFF),
               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
             ),
-            child: const Text('Save', style: TextStyle(color: Colors.white),),
+            child: const Text('Save', style: TextStyle(color: Colors.white)),
           ),
         ],
       ),
@@ -610,11 +681,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
   }
 }
 
-// ═══════════════════════════════════════════════════════════════════════════════
-// Downloaded Results Screen
-// Reads all PDFs saved by HistoryScreen._downloadPDF() from app documents dir.
-// ═══════════════════════════════════════════════════════════════════════════════
-
 class DownloadedResultsScreen extends StatefulWidget {
   const DownloadedResultsScreen({super.key});
 
@@ -637,11 +703,12 @@ class _DownloadedResultsScreenState extends State<DownloadedResultsScreen> {
     final all = dir.listSync();
     final pdfs = all.whereType<File>().where((f) => f.path.endsWith('.pdf')).toList()
       ..sort((a, b) => b.lastModifiedSync().compareTo(a.lastModifiedSync()));
-    if (mounted)
+    if (mounted) {
       setState(() {
         _pdfFiles = pdfs;
         _isLoading = false;
       });
+    }
   }
 
   Future<void> _deleteFile(File file) async {
@@ -655,7 +722,6 @@ class _DownloadedResultsScreenState extends State<DownloadedResultsScreen> {
   }
 
   String _friendlyName(File file) {
-    // "Draw_98_Rs__1500.pdf"  →  "Draw #98 • Rs. 1500"
     final name = file.uri.pathSegments.last.replaceAll('.pdf', '');
     return name.replaceAll('Draw_', 'Draw #').replaceAll('__', ' ').replaceAll('_', ' • ').replaceAll('Rs  ', 'Rs. ');
   }
@@ -797,7 +863,6 @@ class _DownloadedResultsScreenState extends State<DownloadedResultsScreen> {
               padding: const EdgeInsets.all(16),
               child: Row(
                 children: [
-                  // PDF icon
                   Container(
                     width: 52,
                     height: 52,
@@ -813,7 +878,6 @@ class _DownloadedResultsScreenState extends State<DownloadedResultsScreen> {
                     ),
                   ),
                   const SizedBox(width: 14),
-                  // File info
                   Expanded(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
@@ -846,7 +910,6 @@ class _DownloadedResultsScreenState extends State<DownloadedResultsScreen> {
                       ],
                     ),
                   ),
-                  // Open arrow
                   const Icon(Icons.open_in_new, size: 18, color: Color(0xFF2D5BFF)),
                 ],
               ),

@@ -1,4 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:hive_flutter/hive_flutter.dart';
+import 'package:prize_bond_checking_app/models/draw_result_model.dart';
+import 'package:prize_bond_checking_app/services/notification_service.dart';
 
 class DrawsScreen extends StatefulWidget {
   const DrawsScreen({super.key});
@@ -22,69 +25,9 @@ class _DrawsScreenState extends State<DrawsScreen> {
     'Rs. 40000',
   ];
 
-  // TODO: Replace with real draw data from National Savings API
-  final List<Map<String, dynamic>> allDraws = [
-    {
-      'denomination': 'Rs. 40000',
-      'drawDate': 'January 20, 2026',
-      'city': 'Quetta',
-      'status': 'upcoming',
-      'daysLeft': 3,
-      'drawNumber': '102',
-    },
-    {
-      'denomination': 'Rs. 1500',
-      'drawDate': 'January 17, 2026',
-      'city': 'Lahore',
-      'status': 'today',
-      'daysLeft': 0,
-      'drawNumber': '101',
-    },
-    {
-      'denomination': 'Rs. 200',
-      'drawDate': 'January 15, 2026',
-      'city': 'Hyderabad',
-      'status': 'completed',
-      'daysLeft': -2,
-      'drawNumber': '100',
-    },
-    {
-      'denomination': 'Rs. 750',
-      'drawDate': 'January 10, 2026',
-      'city': 'Karachi',
-      'status': 'completed',
-      'daysLeft': -7,
-      'drawNumber': '99',
-    },
-    {
-      'denomination': 'Rs. 25000',
-      'drawDate': 'February 01, 2026',
-      'city': 'Islamabad',
-      'status': 'upcoming',
-      'daysLeft': 15,
-      'drawNumber': '103',
-    },
-    {
-      'denomination': 'Rs. 7500',
-      'drawDate': 'February 15, 2026',
-      'city': 'Multan',
-      'status': 'upcoming',
-      'daysLeft': 29,
-      'drawNumber': '104',
-    },
-    {
-      'denomination': 'Rs. 100',
-      'drawDate': 'December 28, 2025',
-      'city': 'Peshawar',
-      'status': 'completed',
-      'daysLeft': -20,
-      'drawNumber': '98',
-    },
-  ];
-
-  List<Map<String, dynamic>> get filteredDraws {
-    if (_selectedDenomination == 'All') return allDraws;
-    return allDraws.where((draw) => draw['denomination'] == _selectedDenomination).toList();
+  List<DrawResult> _filteredDraws(List<DrawResult> all) {
+    if (_selectedDenomination == 'All') return all;
+    return all.where((d) => d.denomination == _selectedDenomination).toList();
   }
 
   @override
@@ -95,7 +38,21 @@ class _DrawsScreenState extends State<DrawsScreen> {
         children: [
           _buildHeader(),
           _buildDenominationFilter(),
-          Expanded(child: _buildDrawsList()),
+          Expanded(
+            child: ValueListenableBuilder(
+              valueListenable: Hive.box<DrawResult>('draws').listenable(),
+              builder: (context, Box<DrawResult> box, _) {
+                final draws = _filteredDraws(box.values.toList());
+                return draws.isEmpty
+                    ? _buildEmptyState()
+                    : ListView.builder(
+                        padding: const EdgeInsets.all(20),
+                        itemCount: draws.length,
+                        itemBuilder: (context, index) => _buildDrawCard(draws[index]),
+                      );
+              },
+            ),
+          ),
         ],
       ),
     );
@@ -123,11 +80,8 @@ class _DrawsScreenState extends State<DrawsScreen> {
                     icon: const Icon(Icons.arrow_back, color: Colors.white),
                     onPressed: () => Navigator.pop(context),
                   ),
-
                 const Icon(Icons.trending_up_rounded, color: Colors.white, size: 28),
-
                 const SizedBox(width: 12),
-
                 const Text(
                   'Prize Bond Draws',
                   style: TextStyle(color: Colors.white, fontSize: 24, fontWeight: FontWeight.bold),
@@ -135,9 +89,7 @@ class _DrawsScreenState extends State<DrawsScreen> {
               ],
             ),
           ),
-
           const SizedBox(height: 12),
-
           Text('View all prize bond draw schedules', style: TextStyle(color: Colors.white.withOpacity(0.9), fontSize: 14)),
         ],
       ),
@@ -193,44 +145,32 @@ class _DrawsScreenState extends State<DrawsScreen> {
     );
   }
 
-  Widget _buildDrawsList() {
-    if (filteredDraws.isEmpty) {
-      return Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Container(
-              padding: const EdgeInsets.all(24),
-              decoration: const BoxDecoration(color: Color(0xFFEFF6FF), shape: BoxShape.circle),
-              child: const Icon(Icons.search_off_rounded, size: 64, color: Color(0xFF2D5BFF)),
-            ),
-            const SizedBox(height: 24),
-            const Text(
-              'No draws found',
-              style: TextStyle(fontSize: 20, fontWeight: FontWeight.w600, color: Color(0xFF1F2937)),
-            ),
-            const SizedBox(height: 8),
-            const Text('Try selecting a different denomination', style: TextStyle(fontSize: 14, color: Color(0xFF6B7280))),
-          ],
-        ),
-      );
-    }
-
-    return ListView.builder(
-      padding: const EdgeInsets.all(20),
-      itemCount: filteredDraws.length,
-      itemBuilder: (context, index) {
-        final draw = filteredDraws[index];
-        return _buildDrawCard(draw);
-      },
+  Widget _buildEmptyState() {
+    return Center(
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Container(
+            padding: const EdgeInsets.all(24),
+            decoration: const BoxDecoration(color: Color(0xFFEFF6FF), shape: BoxShape.circle),
+            child: const Icon(Icons.search_off_rounded, size: 64, color: Color(0xFF2D5BFF)),
+          ),
+          const SizedBox(height: 24),
+          const Text(
+            'No draws found',
+            style: TextStyle(fontSize: 20, fontWeight: FontWeight.w600, color: Color(0xFF1F2937)),
+          ),
+          const SizedBox(height: 8),
+          const Text('Try selecting a different denomination', style: TextStyle(fontSize: 14, color: Color(0xFF6B7280))),
+        ],
+      ),
     );
   }
 
-  Widget _buildDrawCard(Map<String, dynamic> draw) {
-    final status = draw['status'];
-    final isUpcoming = status == 'upcoming';
-    final isToday = status == 'today';
-    final isCompleted = status == 'completed';
+  Widget _buildDrawCard(DrawResult draw) {
+    final isUpcoming = draw.status == 'upcoming';
+    final isToday = draw.status == 'today';
+    final isCompleted = draw.status == 'completed';
 
     Color statusColor;
     String statusText;
@@ -242,7 +182,7 @@ class _DrawsScreenState extends State<DrawsScreen> {
       statusIcon = Icons.event_available;
     } else if (isUpcoming) {
       statusColor = const Color(0xFF10B981);
-      statusText = '${draw['daysLeft']} DAYS LEFT';
+      statusText = '${draw.daysLeft} DAYS LEFT';
       statusIcon = Icons.access_time;
     } else {
       statusColor = const Color(0xFF6B7280);
@@ -282,13 +222,13 @@ class _DrawsScreenState extends State<DrawsScreen> {
                               borderRadius: BorderRadius.circular(8),
                             ),
                             child: Text(
-                              draw['denomination'],
+                              draw.denomination,
                               style: const TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.w600),
                             ),
                           ),
                           const SizedBox(height: 8),
                           Text(
-                            draw['drawDate'],
+                            draw.drawDate,
                             style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Color(0xFF1F2937)),
                           ),
                           const SizedBox(height: 4),
@@ -296,11 +236,11 @@ class _DrawsScreenState extends State<DrawsScreen> {
                             children: [
                               const Icon(Icons.location_on, size: 14, color: Color(0xFF6B7280)),
                               const SizedBox(width: 4),
-                              Text(draw['city'], style: const TextStyle(fontSize: 13, color: Color(0xFF6B7280))),
+                              Text(draw.city, style: const TextStyle(fontSize: 13, color: Color(0xFF6B7280))),
                               const SizedBox(width: 12),
                               const Icon(Icons.numbers, size: 14, color: Color(0xFF6B7280)),
                               const SizedBox(width: 4),
-                              Text('Draw #${draw['drawNumber']}', style: const TextStyle(fontSize: 13, color: Color(0xFF6B7280))),
+                              Text('Draw #${draw.drawNumber}', style: const TextStyle(fontSize: 13, color: Color(0xFF6B7280))),
                             ],
                           ),
                         ],
@@ -362,29 +302,19 @@ class _DrawsScreenState extends State<DrawsScreen> {
                 ],
                 if (isCompleted) ...[
                   const SizedBox(height: 12),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      TextButton.icon(
-                        onPressed: () => _downloadPDF(draw),
-                        icon: const Icon(Icons.download_rounded, size: 16),
-                        label: const Text('Download PDF'),
-                        style: TextButton.styleFrom(foregroundColor: const Color(0xFF2D5BFF)),
-                      ),
-                      InkWell(
-                        onTap: () => _showDrawDetails(draw),
-                        child: const Row(
-                          children: [
-                            Text(
-                              'View Results',
-                              style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: Color(0xFF2D5BFF)),
-                            ),
-                            SizedBox(width: 4),
-                            Icon(Icons.arrow_forward_ios, size: 12, color: Color(0xFF2D5BFF)),
-                          ],
+                  InkWell(
+                    onTap: () => _showDrawDetails(draw),
+                    child: const Row(
+                      mainAxisAlignment: MainAxisAlignment.end,
+                      children: [
+                        Text(
+                          'View Results',
+                          style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: Color(0xFF2D5BFF)),
                         ),
-                      ),
-                    ],
+                        SizedBox(width: 4),
+                        Icon(Icons.arrow_forward_ios, size: 12, color: Color(0xFF2D5BFF)),
+                      ],
+                    ),
                   ),
                 ],
               ],
@@ -395,27 +325,26 @@ class _DrawsScreenState extends State<DrawsScreen> {
     );
   }
 
-  void _setReminder(Map<String, dynamic> draw) {
+  Future<void> _setReminder(DrawResult draw) async {
+    await NotificationService().showNewDrawNotification(denomination: draw.denomination, date: draw.drawDate, city: draw.city);
+    if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Text('Reminder set for ${draw['denomination']} draw on ${draw['drawDate']}'),
+        content: Row(
+          children: [
+            const Icon(Icons.notifications_active, color: Colors.white, size: 18),
+            const SizedBox(width: 8),
+            Expanded(child: Text('Reminder set for ${draw.denomination} draw on ${draw.drawDate}')),
+          ],
+        ),
         backgroundColor: const Color(0xFF10B981),
         behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       ),
     );
   }
 
-  void _downloadPDF(Map<String, dynamic> draw) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text('Downloading PDF: ${draw['denomination']} Draw #${draw['drawNumber']}'),
-        backgroundColor: const Color(0xFF2D5BFF),
-        behavior: SnackBarBehavior.floating,
-      ),
-    );
-  }
-
-  void _showDrawDetails(Map<String, dynamic> draw) {
+  void _showDrawDetails(DrawResult draw) {
     showModalBottomSheet(
       context: context,
       backgroundColor: Colors.transparent,
@@ -442,12 +371,12 @@ class _DrawsScreenState extends State<DrawsScreen> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          draw['denomination'],
+                          draw.denomination,
                           style: const TextStyle(color: Colors.white, fontSize: 28, fontWeight: FontWeight.bold),
                         ),
                         const SizedBox(height: 4),
                         Text(
-                          'Draw #${draw['drawNumber']} • ${draw['drawDate']}',
+                          'Draw #${draw.drawNumber} • ${draw.drawDate}',
                           style: TextStyle(color: Colors.white.withOpacity(0.9), fontSize: 14),
                         ),
                       ],
@@ -471,11 +400,26 @@ class _DrawsScreenState extends State<DrawsScreen> {
                       style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Color(0xFF1F2937)),
                     ),
                     const SizedBox(height: 20),
-                    _buildDetailRow('Draw Date', draw['drawDate'], Icons.calendar_today),
-                    _buildDetailRow('Draw Location', draw['city'], Icons.location_on),
-                    _buildDetailRow('Draw Number', '#${draw['drawNumber']}', Icons.numbers),
+                    _buildDetailRow('Draw Date', draw.drawDate, Icons.calendar_today),
+                    _buildDetailRow('Draw Location', draw.city, Icons.location_on),
+                    _buildDetailRow('Draw Number', '#${draw.drawNumber}', Icons.numbers),
+                    if (draw.status == 'completed') ...[
+                      _buildDetailRow('1st Prize', '${draw.firstPrize} — ${draw.firstPrizeAmount}', Icons.emoji_events),
+                      if (draw.secondPrize != null)
+                        _buildDetailRow(
+                          '2nd Prize',
+                          '${draw.secondPrize} — ${draw.secondPrizeAmount}',
+                          Icons.emoji_events_outlined,
+                        ),
+                      if (draw.thirdPrize != null)
+                        _buildDetailRow(
+                          '3rd Prize',
+                          '${draw.thirdPrize} — ${draw.thirdPrizeAmount}',
+                          Icons.emoji_events_outlined,
+                        ),
+                    ],
                     const SizedBox(height: 24),
-                    if (draw['status'] == 'upcoming' || draw['status'] == 'today') ...[
+                    if (draw.status == 'upcoming' || draw.status == 'today') ...[
                       SizedBox(
                         width: double.infinity,
                         child: ElevatedButton.icon(
@@ -485,26 +429,6 @@ class _DrawsScreenState extends State<DrawsScreen> {
                           },
                           icon: const Icon(Icons.notifications_active),
                           label: const Text('Enable Draw Reminder'),
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: const Color(0xFF2D5BFF),
-                            foregroundColor: Colors.white,
-                            padding: const EdgeInsets.symmetric(vertical: 16),
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                          ),
-                        ),
-                      ),
-                      const SizedBox(height: 12),
-                    ],
-                    if (draw['status'] == 'completed') ...[
-                      SizedBox(
-                        width: double.infinity,
-                        child: ElevatedButton.icon(
-                          onPressed: () {
-                            Navigator.pop(context);
-                            _downloadPDF(draw);
-                          },
-                          icon: const Icon(Icons.download_rounded),
-                          label: const Text('Download Full Results PDF'),
                           style: ElevatedButton.styleFrom(
                             backgroundColor: const Color(0xFF2D5BFF),
                             foregroundColor: Colors.white,
@@ -549,7 +473,7 @@ class _DrawsScreenState extends State<DrawsScreen> {
                 const SizedBox(height: 2),
                 Text(
                   value,
-                  style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600, color: Color(0xFF1F2937)),
+                  style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600, color: Color(0xFF1F2937)),
                 ),
               ],
             ),

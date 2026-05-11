@@ -34,8 +34,10 @@ class _AdminScreenState extends State<AdminScreen> with SingleTickerProviderStat
       setState(() => _loading = false);
       return;
     }
+
     final profile = await AuthService.getUserProfile();
     final approved = await AuthService.isApproved();
+
     setState(() {
       _realUser = profile;
       _realUserApproved = approved;
@@ -45,6 +47,7 @@ class _AdminScreenState extends State<AdminScreen> with SingleTickerProviderStat
 
   List<Map<String, dynamic>> get _pendingList {
     if (_realUser == null || _realUserApproved) return [];
+
     return [
       {
         'name': _realUser!['name'] ?? 'Unknown',
@@ -59,6 +62,7 @@ class _AdminScreenState extends State<AdminScreen> with SingleTickerProviderStat
 
   List<Map<String, dynamic>> get _approvedList {
     final list = List<Map<String, dynamic>>.from(_dummyApproved);
+
     if (_realUser != null && _realUserApproved) {
       list.insert(0, {
         'name': _realUser!['name'] ?? 'Unknown',
@@ -68,41 +72,10 @@ class _AdminScreenState extends State<AdminScreen> with SingleTickerProviderStat
         'date': 'Just approved',
       });
     }
+
     return list;
   }
 
-  //   Future<void> _sendApprovalEmail(String toEmail, String userName) async {
-  //     final Email email = Email(
-  //       recipients: [toEmail],
-  //       subject: 'Prize Bond App — Registration Approved!',
-  //       body: '''Dear $userName,
-
-  // Congratulations! Your registration for the Prize Bond Checking App has been approved by the administrator.
-
-  // You can now open the app and enter your 4-digit PIN to access all features.
-
-  // Welcome aboard!
-
-  // Regards,
-  // Prize Bond App Team''',
-  //       isHTML: false,
-  //     );
-
-  //     try {
-  //       await FlutterEmailSender.send(email);
-  //     } catch (e) {
-  //       if (mounted) {
-  //         ScaffoldMessenger.of(context).showSnackBar(
-  //           SnackBar(
-  //             content: Text('Could not open mail app: $e'),
-  //             backgroundColor: Colors.orange[700],
-  //             behavior: SnackBarBehavior.floating,
-  //             shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-  //           ),
-  //         );
-  //       }
-  //     }
-  //   }
   Future<void> _sendApprovalEmail(String toEmail, String userName) async {
     await Future.delayed(const Duration(milliseconds: 500));
     debugPrint('Approval email would be sent to $toEmail');
@@ -115,6 +88,7 @@ class _AdminScreenState extends State<AdminScreen> with SingleTickerProviderStat
 
     final userEmail = _realUser!['email'] ?? '';
     final userName = _realUser!['name'] ?? 'User';
+
     if (userEmail.isNotEmpty) {
       await _sendApprovalEmail(userEmail, userName);
     }
@@ -125,6 +99,7 @@ class _AdminScreenState extends State<AdminScreen> with SingleTickerProviderStat
     });
 
     if (!mounted) return;
+
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text('$userName approved! Approval email sent.'),
@@ -133,17 +108,21 @@ class _AdminScreenState extends State<AdminScreen> with SingleTickerProviderStat
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       ),
     );
+
     _tabController.animateTo(1);
   }
 
   Future<void> _reject() async {
     await AuthService.setApproved(false);
     await AuthService.setLoggedIn(false);
+
     setState(() {
       _realUser = null;
       _realUserApproved = false;
     });
+
     if (!mounted) return;
+
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: const Text('Registration rejected. User must re-register.'),
@@ -158,6 +137,45 @@ class _AdminScreenState extends State<AdminScreen> with SingleTickerProviderStat
   void dispose() {
     _tabController.dispose();
     super.dispose();
+  }
+
+  Widget _buildApprovedTab(List<Map<String, dynamic>> approved) {
+    return Column(
+      children: [
+        Container(
+          margin: const EdgeInsets.fromLTRB(20, 16, 20, 0),
+          padding: const EdgeInsets.all(14),
+          decoration: BoxDecoration(
+            color: const Color(0xFFEFF6FF),
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: const Color(0xFF2D5BFF).withOpacity(0.3)),
+          ),
+          child: const Row(
+            children: [
+              Icon(Icons.info_outline, color: Color(0xFF2D5BFF), size: 18),
+              SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  'Demo mode: Ahmed Khan and Fatima Malik are sample records for demonstration purposes.',
+                  style: TextStyle(fontSize: 12, color: Color(0xFF2D5BFF)),
+                ),
+              ),
+            ],
+          ),
+        ),
+
+        Expanded(
+          child: approved.isEmpty
+              ? const _EmptyState(icon: Icons.people_outline, message: 'No approved users yet')
+              : ListView.separated(
+                  padding: const EdgeInsets.all(20),
+                  itemCount: approved.length,
+                  separatorBuilder: (_, __) => const SizedBox(height: 12),
+                  itemBuilder: (_, i) => _ApprovedCard(user: approved[i]),
+                ),
+        ),
+      ],
+    );
   }
 
   @override
@@ -209,14 +227,7 @@ class _AdminScreenState extends State<AdminScreen> with SingleTickerProviderStat
                   ),
                 ),
 
-          approved.isEmpty
-              ? const _EmptyState(icon: Icons.people_outline, message: 'No approved users yet')
-              : ListView.separated(
-                  padding: const EdgeInsets.all(20),
-                  itemCount: approved.length,
-                  separatorBuilder: (_, __) => const SizedBox(height: 12),
-                  itemBuilder: (_, i) => _ApprovedCard(user: approved[i]),
-                ),
+          _buildApprovedTab(approved),
         ],
       ),
     );
@@ -226,7 +237,9 @@ class _AdminScreenState extends State<AdminScreen> with SingleTickerProviderStat
 class _PendingCard extends StatelessWidget {
   final Map<String, dynamic> user;
   final bool isSendingEmail;
-  final VoidCallback onApprove, onReject;
+  final VoidCallback onApprove;
+  final VoidCallback onReject;
+
   const _PendingCard({required this.user, required this.isSendingEmail, required this.onApprove, required this.onReject});
 
   @override
@@ -277,6 +290,7 @@ class _PendingCard extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 12),
+
           Row(
             children: [
               _Tag(Icons.badge_outlined, user['role'].isNotEmpty ? user['role'] : 'N/A'),
@@ -286,7 +300,9 @@ class _PendingCard extends StatelessWidget {
               _Tag(Icons.calendar_today_outlined, user['date']),
             ],
           ),
+
           const SizedBox(height: 14),
+
           Row(
             children: [
               Expanded(
@@ -303,7 +319,9 @@ class _PendingCard extends StatelessWidget {
                   ),
                 ),
               ),
+
               const SizedBox(width: 10),
+
               Expanded(
                 child: SizedBox(
                   height: 40,
@@ -335,6 +353,7 @@ class _PendingCard extends StatelessWidget {
 
 class _ApprovedCard extends StatelessWidget {
   final Map<String, dynamic> user;
+
   const _ApprovedCard({required this.user});
 
   @override
@@ -354,7 +373,9 @@ class _ApprovedCard extends StatelessWidget {
             decoration: BoxDecoration(color: const Color(0xFF10B981).withOpacity(0.1), shape: BoxShape.circle),
             child: const Icon(Icons.person, color: Color(0xFF10B981)),
           ),
+
           const SizedBox(width: 12),
+
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -363,8 +384,11 @@ class _ApprovedCard extends StatelessWidget {
                   user['name'],
                   style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 15, color: Color(0xFF1F2937)),
                 ),
+
                 Text(user['email'], style: TextStyle(fontSize: 12, color: Colors.grey[500])),
+
                 const SizedBox(height: 4),
+
                 Row(
                   children: [
                     _Tag(Icons.badge_outlined, user['role'].isNotEmpty ? user['role'] : 'N/A'),
@@ -375,6 +399,7 @@ class _ApprovedCard extends StatelessWidget {
               ],
             ),
           ),
+
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
             decoration: BoxDecoration(color: const Color(0xFF10B981).withOpacity(0.1), borderRadius: BorderRadius.circular(8)),
@@ -392,6 +417,7 @@ class _ApprovedCard extends StatelessWidget {
 class _Tag extends StatelessWidget {
   final IconData icon;
   final String label;
+
   const _Tag(this.icon, this.label);
 
   @override
@@ -410,6 +436,7 @@ class _Tag extends StatelessWidget {
 class _EmptyState extends StatelessWidget {
   final IconData icon;
   final String message;
+
   const _EmptyState({required this.icon, required this.message});
 
   @override

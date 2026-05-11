@@ -85,8 +85,6 @@ class _NotificationsScreenState extends State<NotificationsScreen> with SingleTi
     );
   }
 
-  // ─── Header ────────────────────────────────────────────────────────────────
-
   Widget _buildHeader() {
     final unread = _service.unreadCount;
     return Container(
@@ -102,7 +100,6 @@ class _NotificationsScreenState extends State<NotificationsScreen> with SingleTi
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Back + title row
           Row(
             children: [
               IconButton(
@@ -115,13 +112,13 @@ class _NotificationsScreenState extends State<NotificationsScreen> with SingleTi
                   style: TextStyle(color: Colors.white, fontSize: 22, fontWeight: FontWeight.bold),
                 ),
               ),
-              // Mark all read
+
               if (unread > 0)
                 TextButton(
                   onPressed: _markAllRead,
                   child: const Text('Mark all read', style: TextStyle(color: Colors.white, fontSize: 13)),
                 ),
-              // Clear all menu
+
               PopupMenuButton<String>(
                 icon: const Icon(Icons.more_vert, color: Colors.white),
                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
@@ -144,7 +141,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> with SingleTi
             ],
           ),
           const SizedBox(height: 12),
-          // Summary chip
+
           Padding(
             padding: const EdgeInsets.only(left: 16),
             child: Container(
@@ -167,8 +164,6 @@ class _NotificationsScreenState extends State<NotificationsScreen> with SingleTi
       ),
     );
   }
-
-  // ─── Tab bar ──────────────────────────────────────────────────────────────
 
   Widget _buildTabBar() {
     return Container(
@@ -207,8 +202,6 @@ class _NotificationsScreenState extends State<NotificationsScreen> with SingleTi
       ),
     );
   }
-
-  // ─── List ──────────────────────────────────────────────────────────────────
 
   Widget _buildList(List<AppNotification> items) {
     if (items.isEmpty) {
@@ -253,8 +246,6 @@ class _NotificationsScreenState extends State<NotificationsScreen> with SingleTi
   }
 }
 
-// ─── Notification Card ─────────────────────────────────────────────────────────
-
 class _NotificationCard extends StatelessWidget {
   final AppNotification notification;
   final VoidCallback onTap;
@@ -262,7 +253,6 @@ class _NotificationCard extends StatelessWidget {
 
   const _NotificationCard({required this.notification, required this.onTap, required this.onDismiss});
 
-  // Visual config per type
   _TypeConfig get _config {
     switch (notification.type) {
       case NotificationType.win:
@@ -338,7 +328,6 @@ class _NotificationCard extends StatelessWidget {
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // Icon circle
               Container(
                 width: 48,
                 height: 48,
@@ -346,12 +335,11 @@ class _NotificationCard extends StatelessWidget {
                 child: Icon(cfg.icon, color: Colors.white, size: 24),
               ),
               const SizedBox(width: 14),
-              // Content
+
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    // Title row
                     Row(
                       children: [
                         Expanded(
@@ -374,10 +362,10 @@ class _NotificationCard extends StatelessWidget {
                       ],
                     ),
                     const SizedBox(height: 4),
-                    // Body
+
                     Text(notification.body, style: const TextStyle(fontSize: 13, color: Color(0xFF6B7280), height: 1.4)),
                     const SizedBox(height: 8),
-                    // Footer
+
                     Row(
                       children: [
                         Container(

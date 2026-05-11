@@ -1,3 +1,7 @@
+import 'dart:convert';
+
+import 'package:crypto/crypto.dart';
+import 'package:hive/hive.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 class AuthService {
@@ -10,8 +14,6 @@ class AuthService {
   static const String _keyUserPhone = 'user_phone';
   static const String _keyUserAddr = 'user_address';
   static const String _keyUserRole = 'user_role';
-
-  // Auth state
 
   static Future<void> setLoggedIn(bool value) async {
     final prefs = await SharedPreferences.getInstance();
@@ -33,19 +35,32 @@ class AuthService {
     return prefs.getBool(_keyApproved) ?? false;
   }
 
-  // PIN
+  static String _hashPin(String pin) {
+    final bytes = utf8.encode(pin);
+    return sha256.convert(bytes).toString();
+  }
 
   static Future<void> savePin(String pin) async {
     final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(_keyUserPin, pin);
+
+    await prefs.setString(_keyUserPin, _hashPin(pin));
   }
 
+  static Future<bool> verifyPin(String pin) async {
+    final prefs = await SharedPreferences.getInstance();
+
+    final stored = prefs.getString(_keyUserPin);
+
+    if (stored == null) return false;
+
+    return stored == _hashPin(pin);
+  }
+
+  @Deprecated('Use verifyPin() instead')
   static Future<String?> getPin() async {
     final prefs = await SharedPreferences.getInstance();
     return prefs.getString(_keyUserPin);
   }
-
-  // User profile
 
   static Future<void> saveUserProfile({
     required String email,
@@ -56,6 +71,7 @@ class AuthService {
     required String role,
   }) async {
     final prefs = await SharedPreferences.getInstance();
+
     await prefs.setString(_keyUserEmail, email);
     await prefs.setString(_keyUserName, name);
     await prefs.setString(_keyUserCity, city);
@@ -66,6 +82,7 @@ class AuthService {
 
   static Future<Map<String, String>> getUserProfile() async {
     final prefs = await SharedPreferences.getInstance();
+
     return {
       'email': prefs.getString(_keyUserEmail) ?? '',
       'name': prefs.getString(_keyUserName) ?? 'User',
@@ -76,9 +93,44 @@ class AuthService {
     };
   }
 
-  // Logout
+  static Future<void> setNotifPref(String key, bool value) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool('notif_$key', value);
+  }
+
+  static Future<bool> getNotifPref(String key, {bool defaultVal = true}) async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getBool('notif_$key') ?? defaultVal;
+  }
+
+  static Future<Map<String, bool>> getAllNotifPrefs() async {
+    return {
+      'all': await getNotifPref('all', defaultVal: true),
+      'win': await getNotifPref('win', defaultVal: true),
+      'draw': await getNotifPref('draw', defaultVal: true),
+      'marketplace': await getNotifPref('marketplace', defaultVal: false),
+    };
+  }
+
   static Future<void> logout() async {
     final prefs = await SharedPreferences.getInstance();
+
     await prefs.clear();
+
+    if (Hive.isBoxOpen('bonds')) {
+      await Hive.box<dynamic>('bonds').clear();
+    }
+
+    if (Hive.isBoxOpen('check_history')) {
+      await Hive.box<dynamic>('check_history').clear();
+    }
+
+    if (Hive.isBoxOpen('notifications')) {
+      await Hive.box<dynamic>('notifications').clear();
+    }
+
+    if (Hive.isBoxOpen('listings')) {
+      await Hive.box<dynamic>('listings').clear();
+    }
   }
 }

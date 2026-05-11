@@ -1,5 +1,9 @@
 import 'package:flutter/material.dart';
+import 'package:hive_flutter/hive_flutter.dart';
+import 'package:prize_bond_checking_app/models/bond_model.dart';
 import 'package:prize_bond_checking_app/screens/scanner_screen.dart';
+import 'package:prize_bond_checking_app/services/draw_service.dart';
+import 'package:prize_bond_checking_app/services/notification_service.dart';
 
 class MyBondsScreen extends StatefulWidget {
   const MyBondsScreen({super.key});
@@ -9,8 +13,8 @@ class MyBondsScreen extends StatefulWidget {
 }
 
 class _MyBondsScreenState extends State<MyBondsScreen> {
-  // TODO: Replace with bonds loaded from local storage / backend
-  final List<Map<String, dynamic>> savedBonds = [];
+  Box<Bond> get _box => Hive.box<Bond>('bonds');
+  final DrawService _drawService = DrawService();
 
   String _selectedFilter = 'All';
   final List<String> filterOptions = [
@@ -25,9 +29,9 @@ class _MyBondsScreenState extends State<MyBondsScreen> {
     'Rs. 40000',
   ];
 
-  List<Map<String, dynamic>> get filteredBonds {
-    if (_selectedFilter == 'All') return savedBonds;
-    return savedBonds.where((bond) => bond['denomination'] == _selectedFilter).toList();
+  List<Bond> _filteredBonds(List<Bond> all) {
+    if (_selectedFilter == 'All') return all;
+    return all.where((b) => b.denomination == _selectedFilter).toList();
   }
 
   @override
@@ -38,7 +42,15 @@ class _MyBondsScreenState extends State<MyBondsScreen> {
         children: [
           _buildHeader(),
           _buildFilterSection(),
-          Expanded(child: filteredBonds.isEmpty ? _buildEmptyState() : _buildBondsList()),
+          Expanded(
+            child: ValueListenableBuilder(
+              valueListenable: _box.listenable(),
+              builder: (context, Box<Bond> box, _) {
+                final bonds = _filteredBonds(box.values.toList());
+                return bonds.isEmpty ? _buildEmptyState() : _buildBondsList(bonds);
+              },
+            ),
+          ),
         ],
       ),
       floatingActionButton: FloatingActionButton.extended(
@@ -73,18 +85,13 @@ class _MyBondsScreenState extends State<MyBondsScreen> {
                     icon: const Icon(Icons.arrow_back, color: Colors.white),
                     onPressed: () => Navigator.pop(context),
                   ),
-
                 const Icon(Icons.bookmark_rounded, color: Colors.white, size: 28),
-
                 const SizedBox(width: 12),
-
                 const Text(
                   'My Bonds',
                   style: TextStyle(color: Colors.white, fontSize: 24, fontWeight: FontWeight.bold),
                 ),
-
                 const Spacer(),
-
                 IconButton(
                   icon: const Icon(Icons.refresh_rounded, color: Colors.white),
                   onPressed: _checkAllBonds,
@@ -92,9 +99,7 @@ class _MyBondsScreenState extends State<MyBondsScreen> {
               ],
             ),
           ),
-
           const SizedBox(height: 12),
-
           Text('Manage and auto-check your saved bonds', style: TextStyle(color: Colors.white.withOpacity(0.9), fontSize: 14)),
         ],
       ),
@@ -150,15 +155,29 @@ class _MyBondsScreenState extends State<MyBondsScreen> {
     );
   }
 
-  Widget _buildBondsList() {
+  Widget _buildBondsList(List<Bond> bonds) {
     return ListView.builder(
       padding: const EdgeInsets.all(20),
-      itemCount: filteredBonds.length,
-      itemBuilder: (context, index) => _buildBondCard(filteredBonds[index]),
+      itemCount: bonds.length,
+      itemBuilder: (context, index) => _buildBondCard(bonds[index]),
     );
   }
 
-  Widget _buildBondCard(Map<String, dynamic> bond) {
+  Widget _buildBondCard(Bond bond) {
+    Color statusColor;
+    Color statusBg;
+
+    if (bond.status == 'Won') {
+      statusColor = const Color(0xFF059669);
+      statusBg = const Color(0xFFD1FAE5);
+    } else if (bond.status == 'No Win') {
+      statusColor = const Color(0xFFF59E0B);
+      statusBg = const Color(0xFFFEF3C7);
+    } else {
+      statusColor = const Color(0xFF2D5BFF);
+      statusBg = const Color(0xFFEFF6FF);
+    }
+
     return Container(
       margin: const EdgeInsets.only(bottom: 16),
       decoration: BoxDecoration(
@@ -185,13 +204,13 @@ class _MyBondsScreenState extends State<MyBondsScreen> {
                           borderRadius: BorderRadius.circular(8),
                         ),
                         child: Text(
-                          bond['denomination'],
+                          bond.denomination,
                           style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.w600),
                         ),
                       ),
                       const SizedBox(height: 8),
                       Text(
-                        bond['number'],
+                        bond.number,
                         style: const TextStyle(
                           fontSize: 24,
                           fontWeight: FontWeight.bold,
@@ -204,18 +223,31 @@ class _MyBondsScreenState extends State<MyBondsScreen> {
                         children: [
                           const Icon(Icons.calendar_today, size: 14, color: Color(0xFF6B7280)),
                           const SizedBox(width: 4),
-                          Text(bond['addedDate'], style: const TextStyle(fontSize: 13, color: Color(0xFF6B7280))),
+                          Text(_formatDate(bond.addedDate), style: const TextStyle(fontSize: 13, color: Color(0xFF6B7280))),
                         ],
                       ),
+                      if (bond.lastChecked != null) ...[
+                        const SizedBox(height: 2),
+                        Row(
+                          children: [
+                            const Icon(Icons.update, size: 14, color: Color(0xFF9CA3AF)),
+                            const SizedBox(width: 4),
+                            Text(
+                              'Last checked: ${_formatDate(bond.lastChecked!)}',
+                              style: const TextStyle(fontSize: 11, color: Color(0xFF9CA3AF)),
+                            ),
+                          ],
+                        ),
+                      ],
                     ],
                   ),
                 ),
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                  decoration: BoxDecoration(color: const Color(0xFFD1FAE5), borderRadius: BorderRadius.circular(12)),
+                  decoration: BoxDecoration(color: statusBg, borderRadius: BorderRadius.circular(12)),
                   child: Text(
-                    bond['status'],
-                    style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Color(0xFF059669)),
+                    bond.status == 'Active' ? 'Active' : bond.status,
+                    style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: statusColor),
                   ),
                 ),
               ],
@@ -373,15 +405,13 @@ class _MyBondsScreenState extends State<MyBondsScreen> {
             ElevatedButton(
               onPressed: () {
                 if (bondNumberController.text.length == 6) {
-                  setState(() {
-                    savedBonds.add({
-                      'id': DateTime.now().millisecondsSinceEpoch.toString(),
-                      'number': bondNumberController.text,
-                      'denomination': selectedDenomination,
-                      'status': 'Active',
-                      'addedDate': 'Just now',
-                    });
-                  });
+                  final bond = Bond()
+                    ..id = DateTime.now().millisecondsSinceEpoch.toString()
+                    ..number = bondNumberController.text
+                    ..denomination = selectedDenomination
+                    ..status = 'Active'
+                    ..addedDate = DateTime.now();
+                  _box.add(bond);
                   Navigator.pop(context);
                   ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Bond added successfully!')));
                 } else {
@@ -402,106 +432,121 @@ class _MyBondsScreenState extends State<MyBondsScreen> {
     );
   }
 
-  void _checkSingleBond(Map<String, dynamic> bond) {
+  void _checkSingleBond(Bond bond) {
+    final result = _drawService.checkBond(bond.number, bond.denomination);
+
+    bond.lastChecked = DateTime.now();
+    bond.status = result != null ? 'Won' : 'No Win';
+    bond.lastResult = result?.drawNumber;
+    bond.save();
+
+    if (result != null) {
+      NotificationService().showWinNotification(bondNumber: bond.number, denomination: bond.denomination, city: result.city);
+    }
+
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-        title: const Text('Checking Bond...'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
+        title: Row(
           children: [
-            const CircularProgressIndicator(color: Color(0xFF2D5BFF)),
-            const SizedBox(height: 16),
-            Text('Checking ${bond['number']} against latest draws...'),
+            Icon(
+              result != null ? Icons.emoji_events : Icons.info_outline,
+              color: result != null ? const Color(0xFF059669) : const Color(0xFF2D5BFF),
+            ),
+            const SizedBox(width: 12),
+            Text(result != null ? 'Winner!' : 'Check Result'),
           ],
         ),
-      ),
-    );
-
-    // TODO: Replace with real API call to match against official draw results
-    Future.delayed(const Duration(seconds: 2), () {
-      Navigator.pop(context);
-      showDialog(
-        context: context,
-        builder: (context) => AlertDialog(
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-          title: const Row(
-            children: [
-              Icon(Icons.info_outline, color: Color(0xFF2D5BFF)),
-              SizedBox(width: 12),
-              Text('Check Result'),
-            ],
-          ),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text('Bond Number: ${bond['number']}'),
-              const SizedBox(height: 8),
-              Text('Denomination: ${bond['denomination']}'),
-              const SizedBox(height: 16),
-              Container(
-                padding: const EdgeInsets.all(16),
-                decoration: BoxDecoration(color: const Color(0xFFFEF3C7), borderRadius: BorderRadius.circular(12)),
-                child: const Row(
-                  children: [
-                    Icon(Icons.sentiment_neutral, color: Color(0xFF92400E)),
-                    SizedBox(width: 12),
-                    Expanded(
-                      child: Text(
-                        'No win found in recent draws',
-                        style: TextStyle(color: Color(0xFF92400E), fontWeight: FontWeight.w600),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('Bond Number: ${bond.number}'),
+            const SizedBox(height: 8),
+            Text('Denomination: ${bond.denomination}'),
+            const SizedBox(height: 16),
+            Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: result != null ? const Color(0xFFD1FAE5) : const Color(0xFFFEF3C7),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Row(
+                children: [
+                  Icon(
+                    result != null ? Icons.emoji_events : Icons.sentiment_neutral,
+                    color: result != null ? const Color(0xFF059669) : const Color(0xFF92400E),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Text(
+                      result != null
+                          ? '🎉 Won in Draw #${result.drawNumber} (${result.drawDate})\n${_drawService.getPrizePosition(result, bond.number)} — ${_drawService.getPrizeAmount(result, bond.number)}'
+                          : 'No win found in completed draws',
+                      style: TextStyle(
+                        color: result != null ? const Color(0xFF059669) : const Color(0xFF92400E),
+                        fontWeight: FontWeight.w600,
                       ),
                     ),
-                  ],
-                ),
+                  ),
+                ],
               ),
-            ],
-          ),
-          actions: [
-            ElevatedButton(
-              onPressed: () => Navigator.pop(context),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: const Color(0xFF2D5BFF),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-              ),
-              child: const Text('Close'),
             ),
           ],
         ),
-      );
-    });
+        actions: [
+          ElevatedButton(
+            onPressed: () => Navigator.pop(context),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFF2D5BFF),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+            ),
+            child: const Text('Close', style: TextStyle(color: Colors.white)),
+          ),
+        ],
+      ),
+    );
   }
 
   void _checkAllBonds() {
-    if (savedBonds.isEmpty) {
+    if (_box.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('No bonds to check. Add bonds first.')));
       return;
     }
+
+    int wins = 0;
+    for (final bond in _box.values) {
+      final result = _drawService.checkBond(bond.number, bond.denomination);
+      bond.lastChecked = DateTime.now();
+      bond.status = result != null ? 'Won' : 'No Win';
+      bond.lastResult = result?.drawNumber;
+      bond.save();
+      if (result != null) wins++;
+    }
+
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Text('Checking all ${savedBonds.length} bonds against latest draws...'),
-        backgroundColor: const Color(0xFF2D5BFF),
+        content: Text(
+          wins > 0 ? '🎉 $wins winning bond${wins > 1 ? 's' : ''} found!' : 'Checked ${_box.length} bonds — no wins found',
+        ),
+        backgroundColor: wins > 0 ? const Color(0xFF059669) : const Color(0xFF2D5BFF),
       ),
     );
-    // TODO: Trigger real auto-check against official draw results
   }
 
-  void _deleteBond(Map<String, dynamic> bond) {
+  void _deleteBond(Bond bond) {
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
         title: const Text('Delete Bond'),
-        content: Text('Are you sure you want to delete bond ${bond['number']}?'),
+        content: Text('Are you sure you want to delete bond ${bond.number}?'),
         actions: [
           TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
           ElevatedButton(
             onPressed: () {
-              setState(() {
-                savedBonds.removeWhere((b) => b['id'] == bond['id']);
-              });
+              bond.delete();
               Navigator.pop(context);
               ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Bond deleted successfully')));
             },
@@ -514,5 +559,10 @@ class _MyBondsScreenState extends State<MyBondsScreen> {
         ],
       ),
     );
+  }
+
+  String _formatDate(DateTime dt) {
+    final months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    return '${months[dt.month - 1]} ${dt.day}, ${dt.year}';
   }
 }
