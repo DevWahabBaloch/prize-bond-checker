@@ -12,7 +12,59 @@
         "secondPrizeAmount": "Rs. 25,000,000",
         "thirdPrize": "111333",
         "thirdPrizeAmount": "Rs. 500,000",
-        "totalPrizes": "1,696"
+        "totalPrizes": "10",
+        "prizeWinners": [
+            {
+                "position": "1st Prize",
+                "number": "750000",
+                "amount": "Rs. 75,000,000"
+            },
+            {
+                "position": "2nd Prize",
+                "number": "321456",
+                "amount": "Rs. 25,000,000"
+            },
+            {
+                "position": "3rd Prize",
+                "number": "111333",
+                "amount": "Rs. 500,000"
+            },
+            {
+                "position": "3rd Prize",
+                "number": "222444",
+                "amount": "Rs. 500,000"
+            },
+            {
+                "position": "3rd Prize",
+                "number": "333555",
+                "amount": "Rs. 500,000"
+            },
+            {
+                "position": "4th Prize",
+                "number": "410203",
+                "amount": "Rs. 18,500"
+            },
+            {
+                "position": "4th Prize",
+                "number": "420304",
+                "amount": "Rs. 18,500"
+            },
+            {
+                "position": "4th Prize",
+                "number": "430405",
+                "amount": "Rs. 18,500"
+            },
+            {
+                "position": "5th Prize",
+                "number": "510607",
+                "amount": "Rs. 9,300"
+            },
+            {
+                "position": "5th Prize",
+                "number": "520708",
+                "amount": "Rs. 9,300"
+            }
+        ]
     },
     {
         "drawNumber": "101",
@@ -27,7 +79,59 @@
         "secondPrizeAmount": "Rs. 1,500,000",
         "thirdPrize": "111222",
         "thirdPrizeAmount": "Rs. 93,000",
-        "totalPrizes": "1,696"
+        "totalPrizes": "10",
+        "prizeWinners": [
+            {
+                "position": "1st Prize",
+                "number": "654321",
+                "amount": "Rs. 3,000,000"
+            },
+            {
+                "position": "2nd Prize",
+                "number": "321654",
+                "amount": "Rs. 1,500,000"
+            },
+            {
+                "position": "3rd Prize",
+                "number": "111222",
+                "amount": "Rs. 93,000"
+            },
+            {
+                "position": "3rd Prize",
+                "number": "222333",
+                "amount": "Rs. 93,000"
+            },
+            {
+                "position": "3rd Prize",
+                "number": "333444",
+                "amount": "Rs. 93,000"
+            },
+            {
+                "position": "4th Prize",
+                "number": "144556",
+                "amount": "Rs. 3,100"
+            },
+            {
+                "position": "4th Prize",
+                "number": "155667",
+                "amount": "Rs. 3,100"
+            },
+            {
+                "position": "4th Prize",
+                "number": "166778",
+                "amount": "Rs. 3,100"
+            },
+            {
+                "position": "5th Prize",
+                "number": "177889",
+                "amount": "Rs. 1,650"
+            },
+            {
+                "position": "5th Prize",
+                "number": "188990",
+                "amount": "Rs. 1,650"
+            }
+        ]
     },
     {
         "drawNumber": "100",
@@ -42,7 +146,59 @@
         "secondPrizeAmount": "Rs. 250,000",
         "thirdPrize": "654987",
         "thirdPrizeAmount": "Rs. 1,250",
-        "totalPrizes": "1,130"
+        "totalPrizes": "10",
+        "prizeWinners": [
+            {
+                "position": "1st Prize",
+                "number": "456789",
+                "amount": "Rs. 750,000"
+            },
+            {
+                "position": "2nd Prize",
+                "number": "987123",
+                "amount": "Rs. 250,000"
+            },
+            {
+                "position": "3rd Prize",
+                "number": "654987",
+                "amount": "Rs. 1,250"
+            },
+            {
+                "position": "3rd Prize",
+                "number": "159357",
+                "amount": "Rs. 1,250"
+            },
+            {
+                "position": "3rd Prize",
+                "number": "753951",
+                "amount": "Rs. 1,250"
+            },
+            {
+                "position": "4th Prize",
+                "number": "246810",
+                "amount": "Rs. 440"
+            },
+            {
+                "position": "4th Prize",
+                "number": "135791",
+                "amount": "Rs. 440"
+            },
+            {
+                "position": "4th Prize",
+                "number": "864297",
+                "amount": "Rs. 440"
+            },
+            {
+                "position": "5th Prize",
+                "number": "975318",
+                "amount": "Rs. 220"
+            },
+            {
+                "position": "5th Prize",
+                "number": "618472",
+                "amount": "Rs. 220"
+            }
+        ]
     },
     {
         "drawNumber": "99",
@@ -57,7 +213,59 @@
         "secondPrizeAmount": "Rs. 500,000",
         "thirdPrize": "789456",
         "thirdPrizeAmount": "Rs. 9,300",
-        "totalPrizes": "1,696"
+        "totalPrizes": "10",
+        "prizeWinners": [
+            {
+                "position": "1st Prize",
+                "number": "987654",
+                "amount": "Rs. 1,500,000"
+            },
+            {
+                "position": "2nd Prize",
+                "number": "456789",
+                "amount": "Rs. 500,000"
+            },
+            {
+                "position": "3rd Prize",
+                "number": "789456",
+                "amount": "Rs. 9,300"
+            },
+            {
+                "position": "3rd Prize",
+                "number": "159852",
+                "amount": "Rs. 9,300"
+            },
+            {
+                "position": "3rd Prize",
+                "number": "357951",
+                "amount": "Rs. 9,300"
+            },
+            {
+                "position": "4th Prize",
+                "number": "741852",
+                "amount": "Rs. 1,650"
+            },
+            {
+                "position": "4th Prize",
+                "number": "852963",
+                "amount": "Rs. 1,650"
+            },
+            {
+                "position": "4th Prize",
+                "number": "963174",
+                "amount": "Rs. 1,650"
+            },
+            {
+                "position": "5th Prize",
+                "number": "174285",
+                "amount": "Rs. 825"
+            },
+            {
+                "position": "5th Prize",
+                "number": "285396",
+                "amount": "Rs. 825"
+            }
+        ]
     },
     {
         "drawNumber": "98",
@@ -72,7 +280,59 @@
         "secondPrizeAmount": "Rs. 1,500,000",
         "thirdPrize": "112233",
         "thirdPrizeAmount": "Rs. 93,000",
-        "totalPrizes": "1,696"
+        "totalPrizes": "10",
+        "prizeWinners": [
+            {
+                "position": "1st Prize",
+                "number": "234567",
+                "amount": "Rs. 3,000,000"
+            },
+            {
+                "position": "2nd Prize",
+                "number": "765432",
+                "amount": "Rs. 1,500,000"
+            },
+            {
+                "position": "3rd Prize",
+                "number": "112233",
+                "amount": "Rs. 93,000"
+            },
+            {
+                "position": "3rd Prize",
+                "number": "223344",
+                "amount": "Rs. 93,000"
+            },
+            {
+                "position": "3rd Prize",
+                "number": "334455",
+                "amount": "Rs. 93,000"
+            },
+            {
+                "position": "4th Prize",
+                "number": "445511",
+                "amount": "Rs. 3,100"
+            },
+            {
+                "position": "4th Prize",
+                "number": "556622",
+                "amount": "Rs. 3,100"
+            },
+            {
+                "position": "4th Prize",
+                "number": "667733",
+                "amount": "Rs. 3,100"
+            },
+            {
+                "position": "5th Prize",
+                "number": "778844",
+                "amount": "Rs. 1,650"
+            },
+            {
+                "position": "5th Prize",
+                "number": "889955",
+                "amount": "Rs. 1,650"
+            }
+        ]
     },
     {
         "drawNumber": "97",
@@ -87,7 +347,59 @@
         "secondPrizeAmount": "Rs. 5,000,000",
         "thirdPrize": "445566",
         "thirdPrizeAmount": "Rs. 93,000",
-        "totalPrizes": "1,696"
+        "totalPrizes": "10",
+        "prizeWinners": [
+            {
+                "position": "1st Prize",
+                "number": "890123",
+                "amount": "Rs. 15,000,000"
+            },
+            {
+                "position": "2nd Prize",
+                "number": "321098",
+                "amount": "Rs. 5,000,000"
+            },
+            {
+                "position": "3rd Prize",
+                "number": "445566",
+                "amount": "Rs. 93,000"
+            },
+            {
+                "position": "3rd Prize",
+                "number": "556677",
+                "amount": "Rs. 93,000"
+            },
+            {
+                "position": "3rd Prize",
+                "number": "667788",
+                "amount": "Rs. 93,000"
+            },
+            {
+                "position": "4th Prize",
+                "number": "778899",
+                "amount": "Rs. 18,500"
+            },
+            {
+                "position": "4th Prize",
+                "number": "889900",
+                "amount": "Rs. 18,500"
+            },
+            {
+                "position": "4th Prize",
+                "number": "990011",
+                "amount": "Rs. 18,500"
+            },
+            {
+                "position": "5th Prize",
+                "number": "102938",
+                "amount": "Rs. 9,300"
+            },
+            {
+                "position": "5th Prize",
+                "number": "203849",
+                "amount": "Rs. 9,300"
+            }
+        ]
     },
     {
         "drawNumber": "96",
@@ -102,7 +414,59 @@
         "secondPrizeAmount": "Rs. 200,000",
         "thirdPrize": "334455",
         "thirdPrizeAmount": "Rs. 1,000",
-        "totalPrizes": "1,199"
+        "totalPrizes": "10",
+        "prizeWinners": [
+            {
+                "position": "1st Prize",
+                "number": "567890",
+                "amount": "Rs. 700,000"
+            },
+            {
+                "position": "2nd Prize",
+                "number": "098765",
+                "amount": "Rs. 200,000"
+            },
+            {
+                "position": "3rd Prize",
+                "number": "334455",
+                "amount": "Rs. 1,000"
+            },
+            {
+                "position": "3rd Prize",
+                "number": "445566",
+                "amount": "Rs. 1,000"
+            },
+            {
+                "position": "3rd Prize",
+                "number": "556677",
+                "amount": "Rs. 1,000"
+            },
+            {
+                "position": "4th Prize",
+                "number": "667788",
+                "amount": "Rs. 370"
+            },
+            {
+                "position": "4th Prize",
+                "number": "778899",
+                "amount": "Rs. 370"
+            },
+            {
+                "position": "4th Prize",
+                "number": "889900",
+                "amount": "Rs. 370"
+            },
+            {
+                "position": "5th Prize",
+                "number": "990011",
+                "amount": "Rs. 185"
+            },
+            {
+                "position": "5th Prize",
+                "number": "011223",
+                "amount": "Rs. 185"
+            }
+        ]
     },
     {
         "drawNumber": "95",
@@ -117,7 +481,59 @@
         "secondPrizeAmount": "Rs. 10,000,000",
         "thirdPrize": "778899",
         "thirdPrizeAmount": "Rs. 185,000",
-        "totalPrizes": "1,696"
+        "totalPrizes": "10",
+        "prizeWinners": [
+            {
+                "position": "1st Prize",
+                "number": "112233",
+                "amount": "Rs. 30,000,000"
+            },
+            {
+                "position": "2nd Prize",
+                "number": "445566",
+                "amount": "Rs. 10,000,000"
+            },
+            {
+                "position": "3rd Prize",
+                "number": "778899",
+                "amount": "Rs. 185,000"
+            },
+            {
+                "position": "3rd Prize",
+                "number": "998877",
+                "amount": "Rs. 185,000"
+            },
+            {
+                "position": "3rd Prize",
+                "number": "776655",
+                "amount": "Rs. 185,000"
+            },
+            {
+                "position": "4th Prize",
+                "number": "554433",
+                "amount": "Rs. 37,000"
+            },
+            {
+                "position": "4th Prize",
+                "number": "332211",
+                "amount": "Rs. 37,000"
+            },
+            {
+                "position": "4th Prize",
+                "number": "110099",
+                "amount": "Rs. 37,000"
+            },
+            {
+                "position": "5th Prize",
+                "number": "998811",
+                "amount": "Rs. 18,500"
+            },
+            {
+                "position": "5th Prize",
+                "number": "776622",
+                "amount": "Rs. 18,500"
+            }
+        ]
     },
     {
         "drawNumber": "103",
@@ -132,7 +548,59 @@
         "secondPrizeAmount": "Rs. 15,000,000",
         "thirdPrize": "246810",
         "thirdPrizeAmount": "Rs. 312,000",
-        "totalPrizes": "1,696"
+        "totalPrizes": "10",
+        "prizeWinners": [
+            {
+                "position": "1st Prize",
+                "number": "123456",
+                "amount": "Rs. 50,000,000"
+            },
+            {
+                "position": "2nd Prize",
+                "number": "654321",
+                "amount": "Rs. 15,000,000"
+            },
+            {
+                "position": "3rd Prize",
+                "number": "246810",
+                "amount": "Rs. 312,000"
+            },
+            {
+                "position": "3rd Prize",
+                "number": "135791",
+                "amount": "Rs. 312,000"
+            },
+            {
+                "position": "3rd Prize",
+                "number": "864202",
+                "amount": "Rs. 312,000"
+            },
+            {
+                "position": "4th Prize",
+                "number": "975313",
+                "amount": "Rs. 62,500"
+            },
+            {
+                "position": "4th Prize",
+                "number": "186424",
+                "amount": "Rs. 62,500"
+            },
+            {
+                "position": "4th Prize",
+                "number": "297535",
+                "amount": "Rs. 62,500"
+            },
+            {
+                "position": "5th Prize",
+                "number": "408646",
+                "amount": "Rs. 31,000"
+            },
+            {
+                "position": "5th Prize",
+                "number": "519757",
+                "amount": "Rs. 31,000"
+            }
+        ]
     },
     {
         "drawNumber": "104",
@@ -147,7 +615,59 @@
         "secondPrizeAmount": "Rs. 5,000,000",
         "thirdPrize": "357913",
         "thirdPrizeAmount": "Rs. 93,000",
-        "totalPrizes": "1,696"
+        "totalPrizes": "10",
+        "prizeWinners": [
+            {
+                "position": "1st Prize",
+                "number": "135790",
+                "amount": "Rs. 15,000,000"
+            },
+            {
+                "position": "2nd Prize",
+                "number": "246802",
+                "amount": "Rs. 5,000,000"
+            },
+            {
+                "position": "3rd Prize",
+                "number": "357913",
+                "amount": "Rs. 93,000"
+            },
+            {
+                "position": "3rd Prize",
+                "number": "468024",
+                "amount": "Rs. 93,000"
+            },
+            {
+                "position": "3rd Prize",
+                "number": "579135",
+                "amount": "Rs. 93,000"
+            },
+            {
+                "position": "4th Prize",
+                "number": "680246",
+                "amount": "Rs. 18,500"
+            },
+            {
+                "position": "4th Prize",
+                "number": "791357",
+                "amount": "Rs. 18,500"
+            },
+            {
+                "position": "4th Prize",
+                "number": "802468",
+                "amount": "Rs. 18,500"
+            },
+            {
+                "position": "5th Prize",
+                "number": "913579",
+                "amount": "Rs. 9,300"
+            },
+            {
+                "position": "5th Prize",
+                "number": "024680",
+                "amount": "Rs. 9,300"
+            }
+        ]
     },
     {
         "drawNumber": "105",
@@ -156,12 +676,64 @@
         "city": "Peshawar",
         "status": "upcoming",
         "daysLeft": 43,
-        "firstPrize": "000000",
+        "firstPrize": "918273",
         "firstPrizeAmount": "Rs. 30,000,000",
-        "secondPrize": null,
-        "secondPrizeAmount": null,
-        "thirdPrize": null,
-        "thirdPrizeAmount": null,
-        "totalPrizes": "1,696"
+        "secondPrize": "827364",
+        "secondPrizeAmount": "Rs. 10,000,000",
+        "thirdPrize": "736455",
+        "thirdPrizeAmount": "Rs. 185,000",
+        "totalPrizes": "10",
+        "prizeWinners": [
+            {
+                "position": "1st Prize",
+                "number": "918273",
+                "amount": "Rs. 30,000,000"
+            },
+            {
+                "position": "2nd Prize",
+                "number": "827364",
+                "amount": "Rs. 10,000,000"
+            },
+            {
+                "position": "3rd Prize",
+                "number": "736455",
+                "amount": "Rs. 185,000"
+            },
+            {
+                "position": "3rd Prize",
+                "number": "645546",
+                "amount": "Rs. 185,000"
+            },
+            {
+                "position": "3rd Prize",
+                "number": "554637",
+                "amount": "Rs. 185,000"
+            },
+            {
+                "position": "4th Prize",
+                "number": "463728",
+                "amount": "Rs. 37,000"
+            },
+            {
+                "position": "4th Prize",
+                "number": "372819",
+                "amount": "Rs. 37,000"
+            },
+            {
+                "position": "4th Prize",
+                "number": "281900",
+                "amount": "Rs. 37,000"
+            },
+            {
+                "position": "5th Prize",
+                "number": "190081",
+                "amount": "Rs. 18,500"
+            },
+            {
+                "position": "5th Prize",
+                "number": "009172",
+                "amount": "Rs. 18,500"
+            }
+        ]
     }
 ]

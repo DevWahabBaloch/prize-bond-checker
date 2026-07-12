@@ -9,6 +9,7 @@ import 'package:prize_bond_checking_app/screens/notifications_screen.dart';
 import 'package:prize_bond_checking_app/screens/scanner_screen.dart';
 import 'package:prize_bond_checking_app/services/auth_service.dart';
 import 'package:prize_bond_checking_app/services/notification_service.dart';
+import 'package:prize_bond_checking_app/widgets/connectivity_badge.dart';
 
 class _BP {
   static const double tablet = 600;
@@ -133,11 +134,12 @@ class _HomeScreenState extends State<HomeScreen> {
         ? 28.0
         : 24.0;
     final titleSize = isDesktop
-        ? 28.0
-        : isTablet
         ? 26.0
-        : 24.0;
+        : isTablet
+        ? 24.0
+        : 22.0;
     final unreadCount = NotificationService().unreadCount;
+    final topInset = MediaQuery.of(context).padding.top;
 
     return Container(
       decoration: const BoxDecoration(
@@ -148,15 +150,18 @@ class _HomeScreenState extends State<HomeScreen> {
         ),
         borderRadius: BorderRadius.only(bottomLeft: Radius.circular(32), bottomRight: Radius.circular(32)),
       ),
-      padding: EdgeInsets.symmetric(horizontal: hPad, vertical: 24),
+      // Top padding now respects the safe area (status bar / notch) instead
+      // of stacking on top of an oversized inner block, so the header no
+      // longer has a large empty gap before "Welcome back,".
+      padding: EdgeInsets.fromLTRB(hPad, topInset + 16, hPad, 20),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Padding(
-                padding: const EdgeInsets.symmetric(vertical: 35.0),
+              Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
@@ -164,38 +169,49 @@ class _HomeScreenState extends State<HomeScreen> {
                     const SizedBox(height: 4),
                     Text(
                       _userName,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
                       style: TextStyle(color: Colors.white, fontSize: titleSize, fontWeight: FontWeight.bold),
                     ),
+                    const SizedBox(height: 10),
+                    const Align(alignment: Alignment.centerLeft, child: ConnectivityBadge()),
                   ],
                 ),
               ),
-              Stack(
-                children: [
-                  IconButton(
-                    icon: const Icon(Icons.notifications_outlined, color: Colors.white),
-                    onPressed: _openNotifications,
-                  ),
-                  if (unreadCount > 0)
-                    Positioned(
-                      right: 8,
-                      top: 8,
-                      child: Container(
-                        width: 16,
-                        height: 16,
-                        decoration: const BoxDecoration(color: Color(0xFFEF4444), shape: BoxShape.circle),
-                        child: Center(
-                          child: Text(
-                            unreadCount > 9 ? '9+' : '$unreadCount',
-                            style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold),
+              const SizedBox(width: 8),
+              // Small top padding so the bell sits level with "Welcome back,"
+              // instead of centering itself against the whole tall column.
+              Padding(
+                padding: const EdgeInsets.only(top: 2),
+                child: Stack(
+                  clipBehavior: Clip.none,
+                  children: [
+                    IconButton(
+                      icon: const Icon(Icons.notifications_outlined, color: Colors.white),
+                      onPressed: _openNotifications,
+                    ),
+                    if (unreadCount > 0)
+                      Positioned(
+                        right: 8,
+                        top: 8,
+                        child: Container(
+                          width: 16,
+                          height: 16,
+                          decoration: const BoxDecoration(color: Color(0xFFEF4444), shape: BoxShape.circle),
+                          child: Center(
+                            child: Text(
+                              unreadCount > 9 ? '9+' : '$unreadCount',
+                              style: const TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold),
+                            ),
                           ),
                         ),
                       ),
-                    ),
-                ],
+                  ],
+                ),
               ),
             ],
           ),
-          const SizedBox(height: 20),
+          const SizedBox(height: 18),
 
           Align(
             alignment: Alignment.centerLeft,

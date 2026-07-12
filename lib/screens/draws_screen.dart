@@ -1,7 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:hive_flutter/hive_flutter.dart';
+import 'package:intl/intl.dart';
+import 'package:prize_bond_checking_app/config/app_config.dart';
 import 'package:prize_bond_checking_app/models/draw_result_model.dart';
+import 'package:prize_bond_checking_app/services/draw_service.dart';
 import 'package:prize_bond_checking_app/services/notification_service.dart';
+import 'package:prize_bond_checking_app/widgets/draw_filter_sheet.dart';
 
 class DrawsScreen extends StatefulWidget {
   const DrawsScreen({super.key});
@@ -12,53 +16,97 @@ class DrawsScreen extends StatefulWidget {
 
 class _DrawsScreenState extends State<DrawsScreen> {
   String _selectedDenomination = 'All';
+  final DrawService _drawService = DrawService();
 
-  final List<String> denominations = [
-    'All',
-    'Rs. 100',
-    'Rs. 200',
-    'Rs. 750',
-    'Rs. 1500',
-    'Rs. 7500',
-    'Rs. 15000',
-    'Rs. 25000',
-    'Rs. 40000',
-  ];
+  final List<String> denominations = ['All', ...AppConfig.denominations];
+  String _selectedCity = 'All';
+  DateTime? _fromDate;
+  DateTime? _toDate;
 
   List<DrawResult> _filteredDraws(List<DrawResult> all) {
-    if (_selectedDenomination == 'All') return all;
-    return all.where((d) => d.denomination == _selectedDenomination).toList();
+    return all.where((d) {
+      final matchesDenom = _selectedDenomination == 'All' || d.denomination == _selectedDenomination;
+      final matchesCity = _selectedCity == 'All' || d.city == _selectedCity;
+      final matchesDate =
+          (_fromDate == null && _toDate == null) ||
+          (() {
+            try {
+              final drawDt = DateFormat('MMMM d, yyyy').parse(d.drawDate);
+              final afterFrom = _fromDate == null || !drawDt.isBefore(_fromDate!);
+              final beforeTo = _toDate == null || !drawDt.isAfter(_toDate!);
+              return afterFrom && beforeTo;
+            } catch (_) {
+              return true;
+            }
+          })();
+      return matchesDenom && matchesCity && matchesDate;
+    }).toList();
   }
 
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: const Color(0xFFFAFBFC),
-      body: Column(
-        children: [
-          _buildHeader(),
-          _buildDenominationFilter(),
-          Expanded(
-            child: ValueListenableBuilder(
-              valueListenable: Hive.box<DrawResult>('draws').listenable(),
-              builder: (context, Box<DrawResult> box, _) {
-                final draws = _filteredDraws(box.values.toList());
-                return draws.isEmpty
-                    ? _buildEmptyState()
-                    : ListView.builder(
-                        padding: const EdgeInsets.all(20),
-                        itemCount: draws.length,
-                        itemBuilder: (context, index) => _buildDrawCard(draws[index]),
-                      );
-              },
-            ),
-          ),
-        ],
+  void _showFilterSheet() {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      isScrollControlled: true,
+      builder: (context) => DrawFilterSheet(
+        selectedDenomination: _selectedDenomination,
+        selectedCity: _selectedCity,
+        fromDate: _fromDate,
+        toDate: _toDate,
+        onApply: (denomination, city, fromDate, toDate) {
+          setState(() {
+            _selectedDenomination = denomination;
+            _selectedCity = city;
+            _fromDate = fromDate;
+            _toDate = toDate;
+          });
+        },
       ),
     );
   }
 
-  Widget _buildHeader() {
+  @override
+  Widget build(BuildContext context) {
+    // Responsive helpers: adapt paddings/font sizes to screen width and
+    // respect safe-area insets (notch / status bar) instead of hardcoded values.
+    final screenWidth = MediaQuery.of(context).size.width;
+    final topInset = MediaQuery.of(context).padding.top;
+    final isWide = screenWidth >= 600; // tablets / foldables / desktop web
+    final maxContentWidth = isWide ? 720.0 : double.infinity;
+    final horizontalPagePadding = isWide ? 24.0 : 20.0;
+
+    return Scaffold(
+      backgroundColor: const Color(0xFFFAFBFC),
+      body: Center(
+        child: ConstrainedBox(
+          constraints: BoxConstraints(maxWidth: maxContentWidth),
+          child: Column(
+            children: [
+              _buildHeader(topInset, isWide),
+              _buildDenominationFilter(isWide),
+              Expanded(
+                child: ValueListenableBuilder(
+                  valueListenable: Hive.box<DrawResult>('draws').listenable(),
+                  builder: (context, Box<DrawResult> box, _) {
+                    final draws = _filteredDraws(box.values.toList());
+                    return draws.isEmpty
+                        ? _buildEmptyState()
+                        : ListView.builder(
+                            padding: EdgeInsets.all(horizontalPagePadding),
+                            itemCount: draws.length,
+                            itemBuilder: (context, index) => _buildDrawCard(draws[index], isWide),
+                          );
+                  },
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildHeader(double topInset, bool isWide) {
     return Container(
       decoration: const BoxDecoration(
         gradient: LinearGradient(
@@ -67,45 +115,55 @@ class _DrawsScreenState extends State<DrawsScreen> {
           end: Alignment.bottomRight,
         ),
       ),
-      padding: const EdgeInsets.all(24),
+      // Top padding now respects the safe area (status bar / notch) instead
+      // of a fixed vertical value, so it looks correct across devices.
+      padding: EdgeInsets.fromLTRB(isWide ? 24 : 20, topInset + 12, isWide ? 24 : 16, 24),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Padding(
-            padding: const EdgeInsets.symmetric(vertical: 25),
-            child: Row(
-              children: [
-                if (Navigator.canPop(context))
-                  IconButton(
-                    icon: const Icon(Icons.arrow_back, color: Colors.white),
-                    onPressed: () => Navigator.pop(context),
-                  ),
-                const Icon(Icons.trending_up_rounded, color: Colors.white, size: 28),
-                const SizedBox(width: 12),
-                const Text(
-                  'Prize Bond Draws',
-                  style: TextStyle(color: Colors.white, fontSize: 24, fontWeight: FontWeight.bold),
+          Row(
+            children: [
+              if (Navigator.canPop(context))
+                IconButton(
+                  icon: const Icon(Icons.arrow_back, color: Colors.white),
+                  onPressed: () => Navigator.pop(context),
                 ),
-              ],
-            ),
+              Icon(Icons.trending_up_rounded, color: Colors.white, size: isWide ? 30 : 26),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Text(
+                  'Prize Bond Draws',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(color: Colors.white, fontSize: isWide ? 26 : 22, fontWeight: FontWeight.bold),
+                ),
+              ),
+              IconButton(
+                icon: const Icon(Icons.filter_list_rounded, color: Colors.white),
+                onPressed: _showFilterSheet,
+              ),
+            ],
           ),
           const SizedBox(height: 12),
-          Text('View all prize bond draw schedules', style: TextStyle(color: Colors.white.withOpacity(0.9), fontSize: 14)),
+          Text(
+            'View all prize bond draw schedules',
+            style: TextStyle(color: Colors.white.withOpacity(0.9), fontSize: isWide ? 15 : 14),
+          ),
         ],
       ),
     );
   }
 
-  Widget _buildDenominationFilter() {
+  Widget _buildDenominationFilter(bool isWide) {
     return Container(
       color: Colors.white,
       padding: const EdgeInsets.symmetric(vertical: 16),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Padding(
-            padding: EdgeInsets.symmetric(horizontal: 20),
-            child: Text(
+          Padding(
+            padding: EdgeInsets.symmetric(horizontal: isWide ? 24 : 20),
+            child: const Text(
               'Filter by Denomination',
               style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: Color(0xFF6B7280)),
             ),
@@ -115,7 +173,7 @@ class _DrawsScreenState extends State<DrawsScreen> {
             height: 45,
             child: ListView.builder(
               scrollDirection: Axis.horizontal,
-              padding: const EdgeInsets.symmetric(horizontal: 20),
+              padding: EdgeInsets.symmetric(horizontal: isWide ? 24 : 20),
               itemCount: denominations.length,
               itemBuilder: (context, index) {
                 final denom = denominations[index];
@@ -147,27 +205,34 @@ class _DrawsScreenState extends State<DrawsScreen> {
 
   Widget _buildEmptyState() {
     return Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Container(
-            padding: const EdgeInsets.all(24),
-            decoration: const BoxDecoration(color: Color(0xFFEFF6FF), shape: BoxShape.circle),
-            child: const Icon(Icons.search_off_rounded, size: 64, color: Color(0xFF2D5BFF)),
-          ),
-          const SizedBox(height: 24),
-          const Text(
-            'No draws found',
-            style: TextStyle(fontSize: 20, fontWeight: FontWeight.w600, color: Color(0xFF1F2937)),
-          ),
-          const SizedBox(height: 8),
-          const Text('Try selecting a different denomination', style: TextStyle(fontSize: 14, color: Color(0xFF6B7280))),
-        ],
+      child: Padding(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Container(
+              padding: const EdgeInsets.all(24),
+              decoration: const BoxDecoration(color: Color(0xFFEFF6FF), shape: BoxShape.circle),
+              child: const Icon(Icons.search_off_rounded, size: 64, color: Color(0xFF2D5BFF)),
+            ),
+            const SizedBox(height: 24),
+            const Text(
+              'No draws found',
+              style: TextStyle(fontSize: 20, fontWeight: FontWeight.w600, color: Color(0xFF1F2937)),
+            ),
+            const SizedBox(height: 8),
+            const Text(
+              'Try selecting a different denomination',
+              textAlign: TextAlign.center,
+              style: TextStyle(fontSize: 14, color: Color(0xFF6B7280)),
+            ),
+          ],
+        ),
       ),
     );
   }
 
-  Widget _buildDrawCard(DrawResult draw) {
+  Widget _buildDrawCard(DrawResult draw, bool isWide) {
     final isUpcoming = draw.status == 'upcoming';
     final isToday = draw.status == 'today';
     final isCompleted = draw.status == 'completed';
@@ -182,7 +247,7 @@ class _DrawsScreenState extends State<DrawsScreen> {
       statusIcon = Icons.event_available;
     } else if (isUpcoming) {
       statusColor = const Color(0xFF10B981);
-      statusText = '${draw.daysLeft} DAYS LEFT';
+      statusText = '${_drawService.daysUntil(draw)} DAYS LEFT';
       statusIcon = Icons.access_time;
     } else {
       statusColor = const Color(0xFF6B7280);
@@ -204,12 +269,12 @@ class _DrawsScreenState extends State<DrawsScreen> {
           borderRadius: BorderRadius.circular(20),
           onTap: () => _showDrawDetails(draw),
           child: Padding(
-            padding: const EdgeInsets.all(20),
+            padding: EdgeInsets.all(isWide ? 22 : 20),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Expanded(
                       child: Column(
@@ -229,23 +294,48 @@ class _DrawsScreenState extends State<DrawsScreen> {
                           const SizedBox(height: 8),
                           Text(
                             draw.drawDate,
-                            style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Color(0xFF1F2937)),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              fontSize: isWide ? 19 : 18,
+                              fontWeight: FontWeight.bold,
+                              color: const Color(0xFF1F2937),
+                            ),
                           ),
                           const SizedBox(height: 4),
-                          Row(
+                          // Wrap instead of a rigid Row so city + draw number
+                          // never overflow on narrow screens; they simply
+                          // wrap to a second line when space is tight.
+                          Wrap(
+                            spacing: 12,
+                            runSpacing: 4,
+                            crossAxisAlignment: WrapCrossAlignment.center,
                             children: [
-                              const Icon(Icons.location_on, size: 14, color: Color(0xFF6B7280)),
-                              const SizedBox(width: 4),
-                              Text(draw.city, style: const TextStyle(fontSize: 13, color: Color(0xFF6B7280))),
-                              const SizedBox(width: 12),
-                              const Icon(Icons.numbers, size: 14, color: Color(0xFF6B7280)),
-                              const SizedBox(width: 4),
-                              Text('Draw #${draw.drawNumber}', style: const TextStyle(fontSize: 13, color: Color(0xFF6B7280))),
+                              Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  const Icon(Icons.location_on, size: 14, color: Color(0xFF6B7280)),
+                                  const SizedBox(width: 4),
+                                  Text(draw.city, style: const TextStyle(fontSize: 13, color: Color(0xFF6B7280))),
+                                ],
+                              ),
+                              Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  const Icon(Icons.numbers, size: 14, color: Color(0xFF6B7280)),
+                                  const SizedBox(width: 4),
+                                  Text(
+                                    'Draw #${draw.drawNumber}',
+                                    style: const TextStyle(fontSize: 13, color: Color(0xFF6B7280)),
+                                  ),
+                                ],
+                              ),
                             ],
                           ),
                         ],
                       ),
                     ),
+                    const SizedBox(width: 8),
                     Container(
                       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                       decoration: BoxDecoration(
@@ -254,11 +344,13 @@ class _DrawsScreenState extends State<DrawsScreen> {
                         border: Border.all(color: statusColor.withOpacity(0.3)),
                       ),
                       child: Column(
+                        mainAxisSize: MainAxisSize.min,
                         children: [
                           Icon(statusIcon, color: statusColor, size: 20),
                           const SizedBox(height: 4),
                           Text(
                             statusText,
+                            textAlign: TextAlign.center,
                             style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: statusColor),
                           ),
                         ],
@@ -274,7 +366,7 @@ class _DrawsScreenState extends State<DrawsScreen> {
                         child: OutlinedButton.icon(
                           onPressed: () => _setReminder(draw),
                           icon: const Icon(Icons.notifications_outlined, size: 16),
-                          label: const Text('Set Reminder'),
+                          label: const Text('Set Reminder', overflow: TextOverflow.ellipsis),
                           style: OutlinedButton.styleFrom(
                             foregroundColor: const Color(0xFF2D5BFF),
                             side: const BorderSide(color: Color(0xFF2D5BFF)),
@@ -288,7 +380,7 @@ class _DrawsScreenState extends State<DrawsScreen> {
                         child: ElevatedButton.icon(
                           onPressed: () => _showDrawDetails(draw),
                           icon: const Icon(Icons.info_outline, size: 16),
-                          label: const Text('Details'),
+                          label: const Text('Details', overflow: TextOverflow.ellipsis),
                           style: ElevatedButton.styleFrom(
                             backgroundColor: const Color(0xFF2D5BFF),
                             foregroundColor: Colors.white,
@@ -372,11 +464,15 @@ class _DrawsScreenState extends State<DrawsScreen> {
                       children: [
                         Text(
                           draw.denomination,
-                          style: const TextStyle(color: Colors.white, fontSize: 28, fontWeight: FontWeight.bold),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(color: Colors.white, fontSize: 26, fontWeight: FontWeight.bold),
                         ),
                         const SizedBox(height: 4),
                         Text(
                           'Draw #${draw.drawNumber} • ${draw.drawDate}',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
                           style: TextStyle(color: Colors.white.withOpacity(0.9), fontSize: 14),
                         ),
                       ],
@@ -417,6 +513,17 @@ class _DrawsScreenState extends State<DrawsScreen> {
                           '${draw.thirdPrize} — ${draw.thirdPrizeAmount}',
                           Icons.emoji_events_outlined,
                         ),
+                    ],
+                    if (draw.status == 'completed' && draw.prizeWinners.isNotEmpty) ...[
+                      const SizedBox(height: 20),
+                      const Text(
+                        'All Prize Winners',
+                        style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Color(0xFF1F2937)),
+                      ),
+                      const SizedBox(height: 12),
+                      ...draw.prizeWinners.map(
+                        (p) => _buildDetailRow(p.position, '${p.number} — ${p.amount}', Icons.confirmation_number_outlined),
+                      ),
                     ],
                     const SizedBox(height: 24),
                     if (draw.status == 'upcoming' || draw.status == 'today') ...[

@@ -4,6 +4,7 @@ import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
 import 'package:google_mlkit_text_recognition/google_mlkit_text_recognition.dart';
 import 'package:hive_flutter/hive_flutter.dart';
+import 'package:prize_bond_checking_app/config/app_config.dart';
 import 'package:prize_bond_checking_app/models/check_record_model.dart';
 import 'package:prize_bond_checking_app/models/draw_result_model.dart';
 import 'package:prize_bond_checking_app/services/draw_service.dart';
@@ -26,8 +27,8 @@ class ScannerScreen extends StatefulWidget {
   /// Optional denomination to check against. If the calling screen
   /// already has one selected (e.g. Check Bond screen), pass it in so
   /// the scanner checks against the right draw set. Defaults to
-  /// 'Rs. 1500' if not provided; the user can still change it on this
-  /// screen via the denomination picker.
+  /// the app's default denomination if not provided; the user can still
+  /// change it on this screen via the denomination picker.
   final String? initialDenomination;
 
   const ScannerScreen({super.key, this.initialDenomination});
@@ -69,21 +70,10 @@ class _ScannerScreenState extends State<ScannerScreen> with WidgetsBindingObserv
   _BondCheckStatus? _checkStatus;
   DrawResult? _matchedDraw;
 
-  static const List<String> _denominations = [
-    'Rs. 100',
-    'Rs. 200',
-    'Rs. 750',
-    'Rs. 1500',
-    'Rs. 7500',
-    'Rs. 15000',
-    'Rs. 25000',
-    'Rs. 40000',
-  ];
-
   @override
   void initState() {
     super.initState();
-    _selectedDenomination = widget.initialDenomination ?? 'Rs. 1500';
+    _selectedDenomination = widget.initialDenomination ?? AppConfig.defaultDenomination;
     WidgetsBinding.instance.addObserver(this);
   }
 
@@ -493,7 +483,7 @@ class _ScannerScreenState extends State<ScannerScreen> with WidgetsBindingObserv
             underline: const SizedBox.shrink(),
             iconEnabledColor: Colors.white70,
             style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.w600),
-            items: _denominations.map((d) => DropdownMenuItem(value: d, child: Text(d))).toList(),
+            items: AppConfig.denominations.map((d) => DropdownMenuItem(value: d, child: Text(d))).toList(),
             onChanged: locked
                 ? null
                 : (val) {

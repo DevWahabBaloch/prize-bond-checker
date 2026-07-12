@@ -30,13 +30,15 @@ class DrawResultAdapter extends TypeAdapter<DrawResult> {
       ..thirdPrize = fields[10] as String?
       ..thirdPrizeAmount = fields[11] as String?
       ..totalPrizes = fields[12] as String
-      ..seededAt = fields[13] as DateTime;
+      ..seededAt = fields[13] as DateTime
+      ..prizeWinners =
+          fields[14] == null ? [] : (fields[14] as List).cast<PrizeEntry>();
   }
 
   @override
   void write(BinaryWriter writer, DrawResult obj) {
     writer
-      ..writeByte(14)
+      ..writeByte(15)
       ..writeByte(0)
       ..write(obj.drawNumber)
       ..writeByte(1)
@@ -64,7 +66,9 @@ class DrawResultAdapter extends TypeAdapter<DrawResult> {
       ..writeByte(12)
       ..write(obj.totalPrizes)
       ..writeByte(13)
-      ..write(obj.seededAt);
+      ..write(obj.seededAt)
+      ..writeByte(14)
+      ..write(obj.prizeWinners);
   }
 
   @override

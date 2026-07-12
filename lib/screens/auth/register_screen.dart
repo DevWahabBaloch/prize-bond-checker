@@ -56,19 +56,16 @@ class _RegisterScreenState extends State<RegisterScreen> {
 
     setState(() => _isLoading = true);
 
-    await AuthService.savePin(_pinController.text.trim());
-
-    await AuthService.saveUserProfile(
+    await AuthService.registerUser(
+      firstName: _firstNameController.text.trim(),
+      lastName: _lastNameController.text.trim(),
+      mobile: _mobileController.text.trim(),
       email: _emailController.text.trim(),
-      name: '${_firstNameController.text.trim()} ${_lastNameController.text.trim()}',
-      city: _cityController.text.trim(),
-      phone: _mobileController.text.trim(),
+      pin: _pinController.text.trim(),
       address: _addressController.text.trim(),
+      city: _cityController.text.trim(),
       role: _selectedRole == 'admin' ? 'Admin' : 'Normal User',
     );
-
-    await AuthService.setLoggedIn(true);
-    await AuthService.setApproved(false);
 
     setState(() => _isLoading = false);
     if (!mounted) return;

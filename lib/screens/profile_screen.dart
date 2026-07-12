@@ -5,8 +5,8 @@ import 'package:open_file/open_file.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:prize_bond_checking_app/models/bond_model.dart';
 import 'package:prize_bond_checking_app/models/check_record_model.dart';
+import 'package:prize_bond_checking_app/screens/admin/admin_screen.dart';
 import 'package:prize_bond_checking_app/screens/check_history_screen.dart';
-import 'package:prize_bond_checking_app/screens/marketplace_screen.dart';
 import 'package:prize_bond_checking_app/screens/my_bonds_screen.dart';
 import 'package:prize_bond_checking_app/screens/history_screen.dart';
 import 'package:prize_bond_checking_app/screens/auth/landing_screen.dart';
@@ -29,6 +29,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
   String _email = '';
   String _phone = '';
   String _city = '';
+  String _role = 'Normal User';
   bool _isLoading = true;
 
   @override
@@ -50,6 +51,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
         _email = profile['email'] ?? 'user@example.com';
         _phone = profile['phone'] ?? '+92 300 1234567';
         _city = profile['city'] ?? 'Lahore';
+        _role = profile['role'] ?? 'Normal User';
         _isLoading = false;
       });
     }
@@ -337,13 +339,15 @@ class _ProfileScreenState extends State<ProfileScreen> {
               onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const CheckHistoryScreen())),
             ),
             _buildDivider(),
-            _buildMenuItem(
-              icon: Icons.shopping_bag_rounded,
-              title: 'My Marketplace Listings',
-              subtitle: 'Bonds you posted for sale',
-              onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const MarketplaceScreen())),
-            ),
-            _buildDivider(),
+            if (_role == 'Admin') ...[
+              _buildMenuItem(
+                icon: Icons.admin_panel_settings_rounded,
+                title: 'Admin Panel',
+                subtitle: 'Review registrations and approvals',
+                onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const AdminScreen())),
+              ),
+              _buildDivider(),
+            ],
             _buildMenuItem(
               icon: Icons.download_done_rounded,
               title: 'Downloaded Results',
@@ -634,7 +638,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 city: cityController.text,
                 phone: phoneController.text,
                 address: 'Updated Address',
-                role: 'Normal User',
+                role: _role,
               );
               await _loadUserProfile();
               if (mounted) {

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:hive_flutter/hive_flutter.dart';
+import 'package:prize_bond_checking_app/config/app_config.dart';
 import 'package:prize_bond_checking_app/models/check_record_model.dart';
 
 class CheckHistoryScreen extends StatefulWidget {
@@ -13,17 +14,7 @@ class _CheckHistoryScreenState extends State<CheckHistoryScreen> {
   String _selectedDenomination = 'All';
   String _selectedResult = 'All';
 
-  final List<String> denominations = [
-    'All',
-    'Rs. 100',
-    'Rs. 200',
-    'Rs. 750',
-    'Rs. 1500',
-    'Rs. 7500',
-    'Rs. 15000',
-    'Rs. 25000',
-    'Rs. 40000',
-  ];
+  final List<String> denominations = ['All', ...AppConfig.denominations];
   final List<String> results = ['All', 'Won', 'No Win'];
 
   List<CheckRecord> _filtered(List<CheckRecord> all) {

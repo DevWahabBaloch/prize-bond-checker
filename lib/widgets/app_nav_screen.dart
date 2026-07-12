@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:prize_bond_checking_app/screens/home_screen.dart';
 import 'package:prize_bond_checking_app/screens/history_screen.dart';
 import 'package:prize_bond_checking_app/screens/draws_screen.dart';
+import 'package:prize_bond_checking_app/screens/marketplace_screen.dart';
 import 'package:prize_bond_checking_app/screens/profile_screen.dart';
 
 class MainNavigationScreen extends StatefulWidget {
@@ -14,8 +15,7 @@ class MainNavigationScreen extends StatefulWidget {
 class _MainNavigationScreenState extends State<MainNavigationScreen> {
   int _selectedIndex = 0;
 
-  static const List<Widget> _screens = [HomeScreen(), HistoryScreen(), DrawsScreen(), ProfileScreen()];
-
+  static const List<Widget> _screens = [HomeScreen(), HistoryScreen(), MarketplaceScreen(), DrawsScreen(), ProfileScreen()];
   void _onItemTapped(int index) {
     if (_selectedIndex != index) {
       setState(() {
@@ -57,8 +57,9 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
             children: [
               _buildNavItem(Icons.home_rounded, 'Home', 0),
               _buildNavItem(Icons.history_rounded, 'History', 1),
-              _buildNavItem(Icons.emoji_events_rounded, 'Draws', 2),
-              _buildNavItem(Icons.person_rounded, 'Profile', 3),
+              _buildNavItem(Icons.storefront_rounded, 'Market', 2),
+              _buildNavItem(Icons.emoji_events_rounded, 'Draws', 3),
+              _buildNavItem(Icons.person_rounded, 'Profile', 4),
             ],
           ),
         ),

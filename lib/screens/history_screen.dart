@@ -6,8 +6,11 @@ import 'package:path_provider/path_provider.dart';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:open_file/open_file.dart';
+import 'package:prize_bond_checking_app/config/app_config.dart';
 import 'package:prize_bond_checking_app/models/draw_result_model.dart';
+import 'package:prize_bond_checking_app/services/draw_service.dart';
 import 'package:prize_bond_checking_app/services/notification_service.dart';
+import 'package:prize_bond_checking_app/widgets/draw_filter_sheet.dart';
 
 class HistoryScreen extends StatefulWidget {
   const HistoryScreen({super.key});
@@ -24,28 +27,32 @@ class _HistoryScreenState extends State<HistoryScreen> with SingleTickerProvider
   DateTime? _toDate;
   bool _isDownloading = false;
 
-  final List<String> denominations = [
-    'All',
-    'Rs. 100',
-    'Rs. 200',
-    'Rs. 750',
-    'Rs. 1500',
-    'Rs. 7500',
-    'Rs. 15000',
-    'Rs. 25000',
-    'Rs. 40000',
-  ];
-  final List<String> cities = [
-    'All',
-    'Lahore',
-    'Karachi',
-    'Islamabad',
-    'Rawalpindi',
-    'Multan',
-    'Faisalabad',
-    'Hyderabad',
-    'Quetta',
-  ];
+  // final List<String> denominations = [
+  //   'All',
+  //   'Rs. 100',
+  //   'Rs. 200',
+  //   'Rs. 750',
+  //   'Rs. 1500',
+  //   'Rs. 7500',
+  //   'Rs. 15000',
+  //   'Rs. 25000',
+  //   'Rs. 40000',
+  // ];
+  // final List<String> cities = [
+  //   'All',
+  //   'Lahore',
+  //   'Karachi',
+  //   'Islamabad',
+  //   'Rawalpindi',
+  //   'Multan',
+  //   'Faisalabad',
+  //   'Hyderabad',
+  //   'Quetta',
+  // ];
+  final List<String> denominations = ['All', ...AppConfig.denominations];
+  final List<String> cities = ['All', ...AppConfig.drawCities];
+
+  final DrawService _drawService = DrawService();
 
   @override
   void initState() {
@@ -59,7 +66,8 @@ class _HistoryScreenState extends State<HistoryScreen> with SingleTickerProvider
     super.dispose();
   }
 
-  List<DrawResult> _filteredCompleted(List<DrawResult> all) {
+  // REPLACE _filteredCompleted with:
+  List<DrawResult> _applyFilters(List<DrawResult> all) {
     return all.where((d) {
       final matchesDenom = _selectedDenomination == 'All' || d.denomination == _selectedDenomination;
       final matchesCity = _selectedCity == 'All' || d.city == _selectedCity;
@@ -94,6 +102,7 @@ class _HistoryScreenState extends State<HistoryScreen> with SingleTickerProvider
     'thirdPrize': d.thirdPrize ?? 'N/A',
     'thirdPrizeAmount': d.thirdPrizeAmount ?? 'N/A',
     'totalPrizes': d.totalPrizes,
+    'prizeWinners': d.prizeWinners.map((p) => {'position': p.position, 'number': p.number, 'amount': p.amount}).toList(),
   };
 
   Future<void> _downloadPDF(Map<String, dynamic> draw) async {
@@ -532,7 +541,7 @@ class _HistoryScreenState extends State<HistoryScreen> with SingleTickerProvider
       valueListenable: Hive.box<DrawResult>('draws').listenable(),
       builder: (context, Box<DrawResult> box, _) {
         final all = box.values.where((d) => d.status == 'completed').toList();
-        final filtered = _filteredCompleted(all);
+        final filtered = _applyFilters(all); // ← was _filteredCompleted(all)
         return filtered.isEmpty
             ? _buildEmptyState()
             : ListView.builder(
@@ -548,10 +557,8 @@ class _HistoryScreenState extends State<HistoryScreen> with SingleTickerProvider
     return ValueListenableBuilder(
       valueListenable: Hive.box<DrawResult>('draws').listenable(),
       builder: (context, Box<DrawResult> box, _) {
-        final upcoming = box.values.where((d) => d.status == 'upcoming' || d.status == 'today').toList();
-        if (upcoming.isEmpty) {
-          return _buildEmptyState();
-        }
+        final upcoming = _applyFilters(box.values.where((d) => d.status == 'upcoming' || d.status == 'today').toList());
+        if (upcoming.isEmpty) return _buildEmptyState();
         return ListView.builder(
           padding: const EdgeInsets.all(20),
           itemCount: upcoming.length,
@@ -749,7 +756,7 @@ class _HistoryScreenState extends State<HistoryScreen> with SingleTickerProvider
                   child: Column(
                     children: [
                       Text(
-                        draw.status == 'today' ? '0' : '${draw.daysLeft}',
+                        draw.status == 'today' ? '0' : '${_drawService.daysUntil(draw)}',
                         style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: Colors.white),
                       ),
                       Text(
@@ -853,302 +860,23 @@ class _HistoryScreenState extends State<HistoryScreen> with SingleTickerProvider
   }
 
   void _showFilterDialog() {
-    DateTime? localFrom = _fromDate;
-    DateTime? localTo = _toDate;
-
     showModalBottomSheet(
       context: context,
       backgroundColor: Colors.transparent,
       isScrollControlled: true,
-      builder: (context) => StatefulBuilder(
-        builder: (context, setModalState) => Container(
-          decoration: const BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.only(topLeft: Radius.circular(24), topRight: Radius.circular(24)),
-          ),
-          padding: const EdgeInsets.all(24),
-          child: SingleChildScrollView(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    const Text(
-                      'Filter Draws',
-                      style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Color(0xFF1F2937)),
-                    ),
-                    IconButton(icon: const Icon(Icons.close), onPressed: () => Navigator.pop(context)),
-                  ],
-                ),
-                const SizedBox(height: 24),
-
-                const Text(
-                  'Denomination',
-                  style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: Color(0xFF6B7280)),
-                ),
-                const SizedBox(height: 12),
-                Wrap(
-                  spacing: 8,
-                  runSpacing: 8,
-                  children: denominations.map((d) {
-                    final sel = _selectedDenomination == d;
-                    return FilterChip(
-                      label: Text(d),
-                      selected: sel,
-                      onSelected: (_) {
-                        setModalState(() => _selectedDenomination = d);
-                        setState(() => _selectedDenomination = d);
-                      },
-                      backgroundColor: Colors.white,
-                      selectedColor: const Color(0xFFEFF6FF),
-                      labelStyle: TextStyle(
-                        color: sel ? const Color(0xFF2D5BFF) : const Color(0xFF6B7280),
-                        fontWeight: sel ? FontWeight.w600 : FontWeight.normal,
-                      ),
-                      side: BorderSide(color: sel ? const Color(0xFF2D5BFF) : const Color(0xFFE5E7EB)),
-                    );
-                  }).toList(),
-                ),
-                const SizedBox(height: 24),
-
-                const Text(
-                  'City',
-                  style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: Color(0xFF6B7280)),
-                ),
-                const SizedBox(height: 12),
-                Wrap(
-                  spacing: 8,
-                  runSpacing: 8,
-                  children: cities.map((c) {
-                    final sel = _selectedCity == c;
-                    return FilterChip(
-                      label: Text(c),
-                      selected: sel,
-                      onSelected: (_) {
-                        setModalState(() => _selectedCity = c);
-                        setState(() => _selectedCity = c);
-                      },
-                      backgroundColor: Colors.white,
-                      selectedColor: const Color(0xFFEFF6FF),
-                      labelStyle: TextStyle(
-                        color: sel ? const Color(0xFF2D5BFF) : const Color(0xFF6B7280),
-                        fontWeight: sel ? FontWeight.w600 : FontWeight.normal,
-                      ),
-                      side: BorderSide(color: sel ? const Color(0xFF2D5BFF) : const Color(0xFFE5E7EB)),
-                    );
-                  }).toList(),
-                ),
-                const SizedBox(height: 24),
-
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    const Text(
-                      'Date Range',
-                      style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: Color(0xFF6B7280)),
-                    ),
-                    if (localFrom != null || localTo != null)
-                      TextButton(
-                        onPressed: () {
-                          setModalState(() {
-                            localFrom = null;
-                            localTo = null;
-                          });
-                          setState(() {
-                            _fromDate = null;
-                            _toDate = null;
-                          });
-                        },
-                        style: TextButton.styleFrom(
-                          foregroundColor: const Color(0xFFEF4444),
-                          padding: EdgeInsets.zero,
-                          minimumSize: Size.zero,
-                          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                        ),
-                        child: const Text('Clear Dates', style: TextStyle(fontSize: 13)),
-                      ),
-                  ],
-                ),
-                const SizedBox(height: 12),
-                Row(
-                  children: [
-                    Expanded(
-                      child: GestureDetector(
-                        onTap: () async {
-                          final picked = await showDatePicker(
-                            context: context,
-                            initialDate: localFrom ?? DateTime.now(),
-                            firstDate: DateTime(2020),
-                            lastDate: DateTime(2030),
-                            builder: (context, child) => Theme(
-                              data: Theme.of(context).copyWith(
-                                colorScheme: const ColorScheme.light(
-                                  primary: Color(0xFF2D5BFF),
-                                  onPrimary: Colors.white,
-                                  surface: Colors.white,
-                                ),
-                              ),
-                              child: child!,
-                            ),
-                          );
-                          if (picked != null) {
-                            setModalState(() => localFrom = picked);
-                            setState(() => _fromDate = picked);
-                          }
-                        },
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
-                          decoration: BoxDecoration(
-                            color: localFrom != null ? const Color(0xFFEFF6FF) : const Color(0xFFF9FAFB),
-                            borderRadius: BorderRadius.circular(12),
-                            border: Border.all(color: localFrom != null ? const Color(0xFF2D5BFF) : const Color(0xFFE5E7EB)),
-                          ),
-                          child: Row(
-                            children: [
-                              Icon(
-                                Icons.calendar_today_rounded,
-                                size: 16,
-                                color: localFrom != null ? const Color(0xFF2D5BFF) : const Color(0xFF9CA3AF),
-                              ),
-                              const SizedBox(width: 8),
-                              Expanded(
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    const Text('From', style: TextStyle(fontSize: 10, color: Color(0xFF9CA3AF))),
-                                    Text(
-                                      localFrom != null ? DateFormat('MMM d, yyyy').format(localFrom!) : 'Any',
-                                      style: TextStyle(
-                                        fontSize: 13,
-                                        fontWeight: FontWeight.w600,
-                                        color: localFrom != null ? const Color(0xFF2D5BFF) : const Color(0xFF6B7280),
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ),
-                    ),
-
-                    const SizedBox(width: 12),
-
-                    Expanded(
-                      child: GestureDetector(
-                        onTap: () async {
-                          final picked = await showDatePicker(
-                            context: context,
-                            initialDate: localTo ?? DateTime.now(),
-                            firstDate: DateTime(2020),
-                            lastDate: DateTime(2030),
-                            builder: (context, child) => Theme(
-                              data: Theme.of(context).copyWith(
-                                colorScheme: const ColorScheme.light(
-                                  primary: Color(0xFF2D5BFF),
-                                  onPrimary: Colors.white,
-                                  surface: Colors.white,
-                                ),
-                              ),
-                              child: child!,
-                            ),
-                          );
-                          if (picked != null) {
-                            setModalState(() => localTo = picked);
-                            setState(() => _toDate = picked);
-                          }
-                        },
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
-                          decoration: BoxDecoration(
-                            color: localTo != null ? const Color(0xFFEFF6FF) : const Color(0xFFF9FAFB),
-                            borderRadius: BorderRadius.circular(12),
-                            border: Border.all(color: localTo != null ? const Color(0xFF2D5BFF) : const Color(0xFFE5E7EB)),
-                          ),
-                          child: Row(
-                            children: [
-                              Icon(
-                                Icons.calendar_today_rounded,
-                                size: 16,
-                                color: localTo != null ? const Color(0xFF2D5BFF) : const Color(0xFF9CA3AF),
-                              ),
-                              const SizedBox(width: 8),
-                              Expanded(
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    const Text('To', style: TextStyle(fontSize: 10, color: Color(0xFF9CA3AF))),
-                                    Text(
-                                      localTo != null ? DateFormat('MMM d, yyyy').format(localTo!) : 'Any',
-                                      style: TextStyle(
-                                        fontSize: 13,
-                                        fontWeight: FontWeight.w600,
-                                        color: localTo != null ? const Color(0xFF2D5BFF) : const Color(0xFF6B7280),
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 24),
-
-                Row(
-                  children: [
-                    Expanded(
-                      child: OutlinedButton(
-                        onPressed: () {
-                          setModalState(() {
-                            _selectedDenomination = 'All';
-                            _selectedCity = 'All';
-                            localFrom = null;
-                            localTo = null;
-                          });
-                          setState(() {
-                            _selectedDenomination = 'All';
-                            _selectedCity = 'All';
-                            _fromDate = null;
-                            _toDate = null;
-                          });
-                        },
-                        style: OutlinedButton.styleFrom(
-                          foregroundColor: const Color(0xFF6B7280),
-                          side: const BorderSide(color: Color(0xFFE5E7EB)),
-                          padding: const EdgeInsets.symmetric(vertical: 16),
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                        ),
-                        child: const Text('Reset'),
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      flex: 2,
-                      child: ElevatedButton(
-                        onPressed: () => Navigator.pop(context),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: const Color(0xFF2D5BFF),
-                          foregroundColor: Colors.white,
-                          padding: const EdgeInsets.symmetric(vertical: 16),
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                        ),
-                        child: const Text('Apply Filters'),
-                      ),
-                    ),
-                  ],
-                ),
-                SizedBox(height: MediaQuery.of(context).viewInsets.bottom),
-              ],
-            ),
-          ),
-        ),
+      builder: (context) => DrawFilterSheet(
+        selectedDenomination: _selectedDenomination,
+        selectedCity: _selectedCity,
+        fromDate: _fromDate,
+        toDate: _toDate,
+        onApply: (denomination, city, fromDate, toDate) {
+          setState(() {
+            _selectedDenomination = denomination;
+            _selectedCity = city;
+            _fromDate = fromDate;
+            _toDate = toDate;
+          });
+        },
       ),
     );
   }
@@ -1212,6 +940,22 @@ class _HistoryScreenState extends State<HistoryScreen> with SingleTickerProvider
                     _buildInfoRow('1st Prize Amount', draw['firstPrizeAmount'], Icons.monetization_on),
                     _buildInfoRow('2nd Prize Amount', draw['secondPrizeAmount'] ?? 'N/A', Icons.monetization_on),
                     _buildInfoRow('3rd Prize Amount', draw['thirdPrizeAmount'] ?? 'N/A', Icons.monetization_on),
+                    if ((draw['prizeWinners'] as List).isNotEmpty) ...[
+                      const SizedBox(height: 12),
+                      const Text(
+                        'All Prize Winners',
+                        style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Color(0xFF1F2937)),
+                      ),
+                      const SizedBox(height: 12),
+                      ...(draw['prizeWinners'] as List).map((p) {
+                        final entry = p as Map;
+                        return _buildInfoRow(
+                          entry['position'] as String,
+                          '${entry['number']} — ${entry['amount']}',
+                          Icons.confirmation_number_outlined,
+                        );
+                      }),
+                    ],
                     const SizedBox(height: 24),
                     SizedBox(
                       width: double.infinity,

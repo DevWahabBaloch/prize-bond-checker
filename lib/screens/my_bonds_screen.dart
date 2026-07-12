@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:hive_flutter/hive_flutter.dart';
+import 'package:prize_bond_checking_app/config/app_config.dart';
 import 'package:prize_bond_checking_app/models/bond_model.dart';
 import 'package:prize_bond_checking_app/screens/scanner_screen.dart';
 import 'package:prize_bond_checking_app/services/draw_service.dart';
@@ -17,17 +18,7 @@ class _MyBondsScreenState extends State<MyBondsScreen> {
   final DrawService _drawService = DrawService();
 
   String _selectedFilter = 'All';
-  final List<String> filterOptions = [
-    'All',
-    'Rs. 100',
-    'Rs. 200',
-    'Rs. 750',
-    'Rs. 1500',
-    'Rs. 7500',
-    'Rs. 15000',
-    'Rs. 25000',
-    'Rs. 40000',
-  ];
+  final List<String> filterOptions = ['All', ...AppConfig.denominations];
 
   List<Bond> _filteredBonds(List<Bond> all) {
     if (_selectedFilter == 'All') return all;
@@ -328,7 +319,7 @@ class _MyBondsScreenState extends State<MyBondsScreen> {
 
   void _showAddBondDialog({String? prefillNumber}) {
     final bondNumberController = TextEditingController(text: prefillNumber ?? '');
-    String selectedDenomination = 'Rs. 1500';
+    String selectedDenomination = AppConfig.defaultDenomination;
 
     showDialog(
       context: context,
@@ -361,16 +352,7 @@ class _MyBondsScreenState extends State<MyBondsScreen> {
                     prefixIcon: const Icon(Icons.attach_money),
                     border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
                   ),
-                  items: const [
-                    'Rs. 100',
-                    'Rs. 200',
-                    'Rs. 750',
-                    'Rs. 1500',
-                    'Rs. 7500',
-                    'Rs. 15000',
-                    'Rs. 25000',
-                    'Rs. 40000',
-                  ].map((d) => DropdownMenuItem(value: d, child: Text(d))).toList(),
+                  items: AppConfig.denominations.map((d) => DropdownMenuItem(value: d, child: Text(d))).toList(),
                   onChanged: (val) => setDialogState(() => selectedDenomination = val!),
                 ),
                 const SizedBox(height: 16),

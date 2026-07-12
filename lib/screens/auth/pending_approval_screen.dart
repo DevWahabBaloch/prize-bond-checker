@@ -136,7 +136,7 @@ class _PendingApprovalScreenState extends State<PendingApprovalScreen> {
                     const SizedBox(height: 14),
                     _Step('1', 'Admin reviews your registration', const Color(0xFF2D5BFF)),
                     const SizedBox(height: 10),
-                    _Step('2', 'You receive an approval email', const Color(0xFF8B5CF6)),
+                    _Step('2', 'Your approval status updates in the app', const Color(0xFF8B5CF6)),
                     const SizedBox(height: 10),
                     _Step('3', 'Open the app and enter your PIN', const Color(0xFF10B981)),
                     const SizedBox(height: 10),

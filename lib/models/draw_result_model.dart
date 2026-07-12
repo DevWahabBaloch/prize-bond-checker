@@ -1,4 +1,5 @@
 import 'package:hive/hive.dart';
+import 'prize_entry_model.dart';
 
 part 'draw_result_model.g.dart';
 
@@ -45,4 +46,7 @@ class DrawResult extends HiveObject {
 
   @HiveField(13)
   late DateTime seededAt;
+
+  @HiveField(14, defaultValue: [])
+  List<PrizeEntry> prizeWinners = const [];
 }

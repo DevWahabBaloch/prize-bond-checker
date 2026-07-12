@@ -1,8 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:hive_flutter/hive_flutter.dart';
+import 'package:prize_bond_checking_app/config/app_config.dart';
+import 'package:prize_bond_checking_app/screens/bulk_check_screen.dart';
 import 'package:prize_bond_checking_app/screens/scanner_screen.dart';
 import 'package:prize_bond_checking_app/models/check_record_model.dart';
 import 'package:prize_bond_checking_app/services/draw_service.dart';
+import 'package:prize_bond_checking_app/services/notification_service.dart';
+import 'package:prize_bond_checking_app/widgets/bond_number_extractor.dart';
 
 class CheckBondScreen extends StatefulWidget {
   final String? initialBondNumber;
@@ -15,22 +19,11 @@ class CheckBondScreen extends StatefulWidget {
 
 class _CheckBondScreenState extends State<CheckBondScreen> {
   final TextEditingController _bondNumberController = TextEditingController();
-  String _selectedDenomination = 'Rs. 1500';
+  String _selectedDenomination = AppConfig.defaultDenomination;
   bool _isChecking = false;
   Map<String, dynamic>? _checkResult;
 
   final DrawService _drawService = DrawService();
-
-  final List<String> denominations = [
-    'Rs. 100',
-    'Rs. 200',
-    'Rs. 750',
-    'Rs. 1500',
-    'Rs. 7500',
-    'Rs. 15000',
-    'Rs. 25000',
-    'Rs. 40000',
-  ];
 
   @override
   void initState() {
@@ -48,7 +41,8 @@ class _CheckBondScreenState extends State<CheckBondScreen> {
   }
 
   void _checkBond() async {
-    if (_bondNumberController.text.length != 6) {
+    final number = _bondNumberController.text.trim();
+    if (!BondNumberExtractor.isValidBondNumber(number)) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Please enter a valid 6-digit bond number'), backgroundColor: Color(0xFFEF4444)),
       );
@@ -57,10 +51,19 @@ class _CheckBondScreenState extends State<CheckBondScreen> {
 
     setState(() => _isChecking = true);
 
-    final result = _drawService.checkBond(_bondNumberController.text, _selectedDenomination);
+    final result = _drawService.checkBond(number, _selectedDenomination);
+    await _drawService.updateSavedBondAfterCheck(number: number, denomination: _selectedDenomination, result: result);
+
+    if (result != null) {
+      await NotificationService().showWinNotification(
+        bondNumber: number,
+        denomination: _selectedDenomination,
+        city: result.city,
+      );
+    }
 
     final record = CheckRecord()
-      ..bondNumber = _bondNumberController.text
+      ..bondNumber = number
       ..denomination = _selectedDenomination
       ..checkedAt = DateTime.now()
       ..resultStatus = result != null ? 'Won' : 'No Win'
@@ -73,14 +76,14 @@ class _CheckBondScreenState extends State<CheckBondScreen> {
     setState(() {
       _isChecking = false;
       _checkResult = {
-        'number': _bondNumberController.text,
+        'number': number,
         'denomination': _selectedDenomination,
         'status': result != null ? 'Winner!' : 'No Win',
         'drawDate': result?.drawDate ?? 'N/A',
         'drawNumber': result?.drawNumber ?? 'N/A',
         'checkedDraws': checkedDraws,
-        'prizePosition': result != null ? _drawService.getPrizePosition(result, _bondNumberController.text) : null,
-        'prizeAmount': result != null ? _drawService.getPrizeAmount(result, _bondNumberController.text) : null,
+        'prizePosition': result != null ? _drawService.getPrizePosition(result, number) : null,
+        'prizeAmount': result != null ? _drawService.getPrizeAmount(result, number) : null,
       };
     });
 
@@ -310,7 +313,7 @@ class _CheckBondScreenState extends State<CheckBondScreen> {
                 filled: true,
                 fillColor: const Color(0xFFF9FAFB),
               ),
-              items: denominations.map((d) => DropdownMenuItem(value: d, child: Text(d))).toList(),
+              items: AppConfig.denominations.map((d) => DropdownMenuItem(value: d, child: Text(d))).toList(),
               onChanged: (val) => setState(() => _selectedDenomination = val!),
             ),
             const SizedBox(height: 20),
@@ -368,20 +371,42 @@ class _CheckBondScreenState extends State<CheckBondScreen> {
             style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Color(0xFF1F2937)),
           ),
           const SizedBox(height: 16),
-          _buildActionCard(
-            icon: Icons.qr_code_scanner,
-            title: 'Scan Bond',
-            subtitle: 'Use camera to scan bond number',
-            gradient: const LinearGradient(colors: [Color(0xFF2D5BFF), Color(0xFF8B5CF6)]),
-            onTap: () async {
-              final scannedNumber = await Navigator.push(
-                context,
-                MaterialPageRoute(builder: (_) => ScannerScreen(initialDenomination: _selectedDenomination)),
-              );
-              if (scannedNumber != null) {
-                _bondNumberController.text = scannedNumber;
-              }
-            },
+          Row(
+            children: [
+              Expanded(
+                child: _buildActionCard(
+                  icon: Icons.qr_code_scanner,
+                  title: 'Scan Bond',
+                  subtitle: 'Use camera',
+                  gradient: const LinearGradient(colors: [Color(0xFF2D5BFF), Color(0xFF8B5CF6)]),
+                  onTap: () async {
+                    final scannedNumber = await Navigator.push(
+                      context,
+                      MaterialPageRoute(builder: (_) => ScannerScreen(initialDenomination: _selectedDenomination)),
+                    );
+                    if (scannedNumber != null) {
+                      _bondNumberController.text = scannedNumber;
+                      if (BondNumberExtractor.isValidBondNumber(scannedNumber)) {
+                        _checkBond();
+                      }
+                    }
+                  },
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: _buildActionCard(
+                  icon: Icons.upload_file,
+                  title: 'Upload List',
+                  subtitle: 'Check txt/csv',
+                  gradient: const LinearGradient(colors: [Color(0xFF10B981), Color(0xFF059669)]),
+                  onTap: () => Navigator.push(
+                    context,
+                    MaterialPageRoute(builder: (_) => BulkCheckScreen(denomination: _selectedDenomination)),
+                  ),
+                ),
+              ),
+            ],
           ),
         ],
       ),
@@ -413,16 +438,25 @@ class _CheckBondScreenState extends State<CheckBondScreen> {
               children: [
                 Icon(icon, color: Colors.white, size: 32),
                 const SizedBox(width: 16),
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      title,
-                      style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600, color: Colors.white),
-                    ),
-                    const SizedBox(height: 4),
-                    Text(subtitle, style: TextStyle(fontSize: 12, color: Colors.white.withOpacity(0.9))),
-                  ],
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        title,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600, color: Colors.white),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        subtitle,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(fontSize: 12, color: Colors.white.withOpacity(0.9)),
+                      ),
+                    ],
+                  ),
                 ),
               ],
             ),

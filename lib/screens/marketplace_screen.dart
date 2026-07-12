@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'package:prize_bond_checking_app/config/app_config.dart';
 import 'package:prize_bond_checking_app/models/listing_model.dart';
 
 class MarketplaceScreen extends StatefulWidget {
@@ -21,10 +22,12 @@ class _MarketplaceScreenState extends State<MarketplaceScreen> {
       appBar: AppBar(
         backgroundColor: Colors.transparent,
         elevation: 0,
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back, color: Color(0xFF1F2937)),
-          onPressed: () => Navigator.pop(context),
-        ),
+        leading: Navigator.canPop(context)
+            ? IconButton(
+                icon: const Icon(Icons.arrow_back, color: Color(0xFF1F2937)),
+                onPressed: () => Navigator.pop(context),
+              )
+            : null,
         title: const Text('Marketplace', style: TextStyle(color: Color(0xFF1F2937))),
       ),
       body: ValueListenableBuilder(
@@ -307,7 +310,7 @@ class _MarketplaceScreenState extends State<MarketplaceScreen> {
     final nameController = TextEditingController();
     final phoneController = TextEditingController();
     final locationController = TextEditingController();
-    String selectedDenomination = 'Rs. 1500';
+    String selectedDenomination = AppConfig.defaultDenomination;
 
     showDialog(
       context: context,
@@ -357,16 +360,7 @@ class _MarketplaceScreenState extends State<MarketplaceScreen> {
                     labelText: 'Denomination',
                     border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
                   ),
-                  items: const [
-                    'Rs. 100',
-                    'Rs. 200',
-                    'Rs. 750',
-                    'Rs. 1500',
-                    'Rs. 7500',
-                    'Rs. 15000',
-                    'Rs. 25000',
-                    'Rs. 40000',
-                  ].map((d) => DropdownMenuItem(value: d, child: Text(d))).toList(),
+                  items: AppConfig.denominations.map((d) => DropdownMenuItem(value: d, child: Text(d))).toList(),
                   onChanged: (val) => setDialogState(() => selectedDenomination = val ?? selectedDenomination),
                 ),
                 const SizedBox(height: 12),

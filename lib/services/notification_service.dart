@@ -184,6 +184,15 @@ class NotificationService {
         importance: NotificationImportance.Default,
         channelShowBadge: true,
       ),
+
+      NotificationChannel(
+        channelKey: 'general_channel',
+        channelName: 'Account Updates',
+        channelDescription: 'General account and app status notifications',
+        defaultColor: const Color(0xFF2D5BFF),
+        importance: NotificationImportance.Default,
+        channelShowBadge: true,
+      ),
     ], debug: false);
 
     bool isAllowed = await AwesomeNotifications().isNotificationAllowed();
@@ -335,6 +344,34 @@ class NotificationService {
       ..id = DateTime.now().millisecondsSinceEpoch.toString()
       ..typeIndex = _indexFromType(NotificationType.resultsAvailable)
       ..title = '📋 Results Available'
+      ..body = body
+      ..timestamp = DateTime.now()
+      ..isRead = false;
+
+    _box.add(model);
+  }
+
+  Future<void> showApprovalNotification({required String userName}) async {
+    final body = '$userName, your account has been approved. You can now sign in with your PIN.';
+
+    final isAllowed = await AwesomeNotifications().isNotificationAllowed();
+    if (isAllowed) {
+      await AwesomeNotifications().createNotification(
+        content: NotificationContent(
+          id: DateTime.now().millisecondsSinceEpoch ~/ 1000,
+          channelKey: 'general_channel',
+          title: 'Account Approved',
+          body: body,
+          notificationLayout: NotificationLayout.Default,
+          category: NotificationCategory.Status,
+        ),
+      );
+    }
+
+    final model = NotificationModel()
+      ..id = DateTime.now().millisecondsSinceEpoch.toString()
+      ..typeIndex = _indexFromType(NotificationType.general)
+      ..title = 'Account Approved'
       ..body = body
       ..timestamp = DateTime.now()
       ..isRead = false;

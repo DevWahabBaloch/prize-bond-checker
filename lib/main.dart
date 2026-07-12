@@ -6,6 +6,8 @@ import 'models/bond_model.dart';
 import 'models/check_record_model.dart';
 import 'models/notification_model.dart';
 import 'models/listing_model.dart';
+import 'models/prize_entry_model.dart';
+import 'models/user_profile_model.dart';
 import 'services/draw_service.dart';
 import 'screens/auth/landing_screen.dart';
 import 'screens/auth/pending_approval_screen.dart';
@@ -16,17 +18,20 @@ void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
   await Hive.initFlutter();
+  Hive.registerAdapter(PrizeEntryAdapter());
   Hive.registerAdapter(DrawResultAdapter());
   Hive.registerAdapter(BondAdapter());
   Hive.registerAdapter(CheckRecordAdapter());
   Hive.registerAdapter(NotificationModelAdapter());
   Hive.registerAdapter(ListingAdapter());
+  Hive.registerAdapter(UserProfileAdapter());
 
   await Hive.openBox<DrawResult>('draws');
   await Hive.openBox<Bond>('bonds');
   await Hive.openBox<CheckRecord>('check_history');
   await Hive.openBox<NotificationModel>('notifications');
   await Hive.openBox<Listing>('listings');
+  await Hive.openBox<UserProfile>('users');
   await NotificationService().init();
 
   await DrawService().seedIfEmpty();
@@ -34,6 +39,7 @@ void main() async {
   runApp(const PrizeBondApp());
 
   WidgetsBinding.instance.addPostFrameCallback((_) async {
+    await DrawService().recalculateDrawStatuses();
     await DrawService().autoCheckAllBonds();
   });
 }
