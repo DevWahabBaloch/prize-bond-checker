@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:prize_bond_checking_app/models/listing_model.dart';
@@ -330,9 +331,13 @@ class _MarketplaceScreenState extends State<MarketplaceScreen> {
                 TextField(
                   controller: phoneController,
                   keyboardType: TextInputType.phone,
+                  maxLength: 10,
+                  inputFormatters: [FilteringTextInputFormatter.digitsOnly, LengthLimitingTextInputFormatter(10)],
                   decoration: InputDecoration(
                     labelText: 'Phone Number',
                     prefixIcon: const Icon(Icons.phone_outlined),
+                    prefixText: '+92 ',
+                    counterText: '',
                     border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
                   ),
                 ),

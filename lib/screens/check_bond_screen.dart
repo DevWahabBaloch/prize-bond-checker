@@ -374,7 +374,10 @@ class _CheckBondScreenState extends State<CheckBondScreen> {
             subtitle: 'Use camera to scan bond number',
             gradient: const LinearGradient(colors: [Color(0xFF2D5BFF), Color(0xFF8B5CF6)]),
             onTap: () async {
-              final scannedNumber = await Navigator.push(context, MaterialPageRoute(builder: (_) => const ScannerScreen()));
+              final scannedNumber = await Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => ScannerScreen(initialDenomination: _selectedDenomination)),
+              );
               if (scannedNumber != null) {
                 _bondNumberController.text = scannedNumber;
               }

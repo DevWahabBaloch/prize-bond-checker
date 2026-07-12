@@ -27,10 +27,9 @@ void main() async {
   await Hive.openBox<CheckRecord>('check_history');
   await Hive.openBox<NotificationModel>('notifications');
   await Hive.openBox<Listing>('listings');
+  await NotificationService().init();
 
   await DrawService().seedIfEmpty();
-
-  await NotificationService().init();
 
   runApp(const PrizeBondApp());
 

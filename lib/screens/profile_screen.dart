@@ -673,7 +673,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
               backgroundColor: const Color(0xFFEF4444),
               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
             ),
-            child: const Text('Logout'),
+            child: const Text('Logout', style: TextStyle(color: Colors.white)),
           ),
         ],
       ),

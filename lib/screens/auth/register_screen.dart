@@ -107,6 +107,18 @@ class _RegisterScreenState extends State<RegisterScreen> {
     );
   }
 
+  void _resetForm() {
+    _formKey.currentState?.reset();
+    _firstNameController.clear();
+    _lastNameController.clear();
+    _mobileController.clear();
+    _emailController.clear();
+    _pinController.clear();
+    _confirmPinController.clear();
+    _addressController.clear();
+    _cityController.clear();
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -156,11 +168,24 @@ class _RegisterScreenState extends State<RegisterScreen> {
                 TextFormField(
                   controller: _mobileController,
                   keyboardType: TextInputType.phone,
-                  inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-                  decoration: _dec('Mobile No.', Icons.phone_outlined),
+                  maxLength: 10,
+                  inputFormatters: [FilteringTextInputFormatter.digitsOnly, LengthLimitingTextInputFormatter(10)],
+                  decoration: _dec('Mobile No.', Icons.phone_outlined).copyWith(
+                    prefixText: '+92 ',
+                    prefixStyle: const TextStyle(color: Color(0xFF1F2937), fontSize: 16),
+                    counterText: '',
+                  ),
                   validator: (v) {
-                    if (v!.isEmpty) return 'Enter your mobile number';
-                    if (v.length < 10) return 'Enter a valid mobile number';
+                    final value = v?.trim() ?? '';
+
+                    if (value.isEmpty) {
+                      return 'Enter your mobile number';
+                    }
+
+                    if (!RegExp(r'^3\d{9}$').hasMatch(value)) {
+                      return 'Enter a valid Pakistani mobile number';
+                    }
+
                     return null;
                   },
                 ),
@@ -356,6 +381,21 @@ class _RegisterScreenState extends State<RegisterScreen> {
                             child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2.5),
                           )
                         : const Text('Register', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
+                  ),
+                ),
+                SizedBox(height: 10),
+                SizedBox(
+                  width: double.infinity,
+                  height: 56,
+                  child: ElevatedButton(
+                    onPressed: _resetForm,
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFF2D5BFF),
+                      foregroundColor: Colors.white,
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                      elevation: 0,
+                    ),
+                    child: const Text('Reset', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
                   ),
                 ),
 

@@ -312,16 +312,24 @@ class NotificationService {
   }) async {
     final body = '$denomination draw results for $date ($city) are now available. Tap to check your bonds.';
 
-    await AwesomeNotifications().createNotification(
-      content: NotificationContent(
-        id: DateTime.now().millisecondsSinceEpoch ~/ 1000,
-        channelKey: 'results_channel',
-        title: '📋 Results Available',
-        body: body,
-        notificationLayout: NotificationLayout.Default,
-        category: NotificationCategory.Status,
-      ),
-    );
+    bool isAllowed = await AwesomeNotifications().isNotificationAllowed();
+
+    if (!isAllowed) {
+      isAllowed = await AwesomeNotifications().requestPermissionToSendNotifications();
+    }
+
+    if (isAllowed) {
+      await AwesomeNotifications().createNotification(
+        content: NotificationContent(
+          id: DateTime.now().millisecondsSinceEpoch ~/ 1000,
+          channelKey: 'results_channel',
+          title: '📋 Results Available',
+          body: body,
+          notificationLayout: NotificationLayout.Default,
+          category: NotificationCategory.Status,
+        ),
+      );
+    }
 
     final model = NotificationModel()
       ..id = DateTime.now().millisecondsSinceEpoch.toString()

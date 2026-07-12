@@ -1,7 +1,5 @@
 import 'dart:convert';
-
 import 'package:crypto/crypto.dart';
-import 'package:hive/hive.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 class AuthService {
@@ -113,24 +111,8 @@ class AuthService {
   }
 
   static Future<void> logout() async {
-    final prefs = await SharedPreferences.getInstance();
+  final prefs = await SharedPreferences.getInstance();
 
-    await prefs.clear();
-
-    if (Hive.isBoxOpen('bonds')) {
-      await Hive.box<dynamic>('bonds').clear();
-    }
-
-    if (Hive.isBoxOpen('check_history')) {
-      await Hive.box<dynamic>('check_history').clear();
-    }
-
-    if (Hive.isBoxOpen('notifications')) {
-      await Hive.box<dynamic>('notifications').clear();
-    }
-
-    if (Hive.isBoxOpen('listings')) {
-      await Hive.box<dynamic>('listings').clear();
-    }
-  }
+  await prefs.clear(); // removes login, pin, approval, etc.
+}
 }

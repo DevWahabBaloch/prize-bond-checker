@@ -48,32 +48,45 @@ class _CheckHistoryScreenState extends State<CheckHistoryScreen> {
 
   @override
   Widget build(BuildContext context) {
+    // Responsive helpers: adapt to screen width and respect the device's
+    // safe-area insets (notches / status bar) instead of hardcoded values.
+    final screenWidth = MediaQuery.of(context).size.width;
+    final topInset = MediaQuery.of(context).padding.top;
+    final isWide = screenWidth >= 600; // tablets / foldables / desktop web
+    final maxContentWidth = isWide ? 720.0 : double.infinity;
+    final horizontalPagePadding = isWide ? 24.0 : 20.0;
+
     return Scaffold(
       backgroundColor: const Color(0xFFFAFBFC),
-      body: Column(
-        children: [
-          _buildHeader(),
-          _buildFilters(),
-          Expanded(
-            child: ValueListenableBuilder(
-              valueListenable: Hive.box<CheckRecord>('check_history').listenable(),
-              builder: (context, Box<CheckRecord> box, _) {
-                final records = _filtered(box.values.toList());
-                if (records.isEmpty) return _buildEmptyState();
-                return ListView.builder(
-                  padding: const EdgeInsets.all(20),
-                  itemCount: records.length,
-                  itemBuilder: (context, i) => _buildCard(records[i]),
-                );
-              },
-            ),
+      body: Center(
+        child: ConstrainedBox(
+          constraints: BoxConstraints(maxWidth: maxContentWidth),
+          child: Column(
+            children: [
+              _buildHeader(topInset, isWide),
+              _buildFilters(isWide),
+              Expanded(
+                child: ValueListenableBuilder(
+                  valueListenable: Hive.box<CheckRecord>('check_history').listenable(),
+                  builder: (context, Box<CheckRecord> box, _) {
+                    final records = _filtered(box.values.toList());
+                    if (records.isEmpty) return _buildEmptyState();
+                    return ListView.builder(
+                      padding: EdgeInsets.all(horizontalPagePadding),
+                      itemCount: records.length,
+                      itemBuilder: (context, i) => _buildCard(records[i]),
+                    );
+                  },
+                ),
+              ),
+            ],
           ),
-        ],
+        ),
       ),
     );
   }
 
-  Widget _buildHeader() {
+  Widget _buildHeader(double topInset, bool isWide) {
     return Container(
       decoration: const BoxDecoration(
         gradient: LinearGradient(
@@ -83,7 +96,9 @@ class _CheckHistoryScreenState extends State<CheckHistoryScreen> {
         ),
         borderRadius: BorderRadius.only(bottomLeft: Radius.circular(32), bottomRight: Radius.circular(32)),
       ),
-      padding: const EdgeInsets.fromLTRB(8, 50, 16, 24),
+      // Top padding now respects the safe area (status bar / notch) instead
+      // of a fixed 50px, so it looks correct across different devices.
+      padding: EdgeInsets.fromLTRB(8, topInset + 12, 16, 24),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -93,10 +108,16 @@ class _CheckHistoryScreenState extends State<CheckHistoryScreen> {
                 icon: const Icon(Icons.arrow_back_ios_new, color: Colors.white),
                 onPressed: () => Navigator.pop(context),
               ),
-              const Expanded(
+              Expanded(
                 child: Text(
                   'Check History',
-                  style: TextStyle(color: Colors.white, fontSize: 22, fontWeight: FontWeight.bold),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: isWide ? 24 : 22,
+                    fontWeight: FontWeight.bold,
+                  ),
                 ),
               ),
 
@@ -134,10 +155,10 @@ class _CheckHistoryScreenState extends State<CheckHistoryScreen> {
     );
   }
 
-  Widget _buildFilters() {
+  Widget _buildFilters(bool isWide) {
     return Container(
       color: Colors.white,
-      padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
+      padding: EdgeInsets.fromLTRB(isWide ? 24 : 16, 14, isWide ? 24 : 16, 14),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -176,34 +197,40 @@ class _CheckHistoryScreenState extends State<CheckHistoryScreen> {
           ),
           const SizedBox(height: 10),
 
-          Row(
-            children: results.map((r) {
-              final sel = _selectedResult == r;
-              Color color;
-              if (r == 'Won')
-                color = const Color(0xFF059669);
-              else if (r == 'No Win')
-                color = const Color(0xFFF59E0B);
-              else
-                color = const Color(0xFF2D5BFF);
-              return Padding(
-                padding: const EdgeInsets.only(right: 8),
-                child: FilterChip(
-                  label: Text(r, style: const TextStyle(fontSize: 12)),
-                  selected: sel,
-                  onSelected: (_) => setState(() => _selectedResult = r),
-                  backgroundColor: Colors.white,
-                  selectedColor: color.withOpacity(0.1),
-                  labelStyle: TextStyle(
-                    color: sel ? color : const Color(0xFF6B7280),
-                    fontWeight: sel ? FontWeight.w600 : FontWeight.normal,
+          // Wrapped in a horizontal scroll view so this row can never
+          // overflow on narrow screens or with larger accessibility
+          // text-scaling settings (it used to be a plain, non-scrollable Row).
+          SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: Row(
+              children: results.map((r) {
+                final sel = _selectedResult == r;
+                Color color;
+                if (r == 'Won')
+                  color = const Color(0xFF059669);
+                else if (r == 'No Win')
+                  color = const Color(0xFFF59E0B);
+                else
+                  color = const Color(0xFF2D5BFF);
+                return Padding(
+                  padding: const EdgeInsets.only(right: 8),
+                  child: FilterChip(
+                    label: Text(r, style: const TextStyle(fontSize: 12)),
+                    selected: sel,
+                    onSelected: (_) => setState(() => _selectedResult = r),
+                    backgroundColor: Colors.white,
+                    selectedColor: color.withOpacity(0.1),
+                    labelStyle: TextStyle(
+                      color: sel ? color : const Color(0xFF6B7280),
+                      fontWeight: sel ? FontWeight.w600 : FontWeight.normal,
+                    ),
+                    side: BorderSide(color: sel ? color : const Color(0xFFE5E7EB)),
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                    visualDensity: VisualDensity.compact,
                   ),
-                  side: BorderSide(color: sel ? color : const Color(0xFFE5E7EB)),
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                  visualDensity: VisualDensity.compact,
-                ),
-              );
-            }).toList(),
+                );
+              }).toList(),
+            ),
           ),
         ],
       ),
@@ -230,33 +257,37 @@ class _CheckHistoryScreenState extends State<CheckHistoryScreen> {
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      record.bondNumber,
-                      style: const TextStyle(
-                        fontSize: 22,
-                        fontWeight: FontWeight.bold,
-                        fontFamily: 'monospace',
-                        color: Color(0xFF1F2937),
+                // Flexible so a long bond number / denomination label can
+                // never push the status badge off-screen on narrow devices.
+                Flexible(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        record.bondNumber,
+                        style: const TextStyle(
+                          fontSize: 22,
+                          fontWeight: FontWeight.bold,
+                          fontFamily: 'monospace',
+                          color: Color(0xFF1F2937),
+                        ),
                       ),
-                    ),
-                    const SizedBox(height: 2),
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                      decoration: BoxDecoration(
-                        gradient: const LinearGradient(colors: [Color(0xFF2D5BFF), Color(0xFF8B5CF6)]),
-                        borderRadius: BorderRadius.circular(8),
+                      const SizedBox(height: 2),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                        decoration: BoxDecoration(
+                          gradient: const LinearGradient(colors: [Color(0xFF2D5BFF), Color(0xFF8B5CF6)]),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: Text(
+                          record.denomination,
+                          style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.w600),
+                        ),
                       ),
-                      child: Text(
-                        record.denomination,
-                        style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.w600),
-                      ),
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
-
+                const SizedBox(width: 12),
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
                   decoration: BoxDecoration(color: statusBg, borderRadius: BorderRadius.circular(12)),
@@ -282,13 +313,17 @@ class _CheckHistoryScreenState extends State<CheckHistoryScreen> {
                 borderRadius: BorderRadius.circular(10),
                 border: Border.all(color: const Color(0xFFE5E7EB)),
               ),
+              // Flexible chips + a Spacer instead of a rigid Row: on wide
+              // screens it lays out exactly as before (draw # and date on
+              // the left, time on the right); on narrow screens the chips
+              // shrink with an ellipsis instead of overflowing.
               child: Row(
                 children: [
-                  _infoChip(Icons.numbers_outlined, 'Draw #${record.drawNumber}'),
-                  const SizedBox(width: 16),
-                  _infoChip(Icons.calendar_today_outlined, record.drawDate),
+                  Flexible(child: _infoChip(Icons.numbers_outlined, 'Draw #${record.drawNumber}')),
+                  const SizedBox(width: 12),
+                  Flexible(child: _infoChip(Icons.calendar_today_outlined, record.drawDate)),
                   const Spacer(),
-                  _infoChip(Icons.access_time_outlined, _formatDateTime(record.checkedAt)),
+                  Flexible(child: _infoChip(Icons.access_time_outlined, _formatDateTime(record.checkedAt))),
                 ],
               ),
             ),
@@ -304,7 +339,14 @@ class _CheckHistoryScreenState extends State<CheckHistoryScreen> {
       children: [
         Icon(icon, size: 13, color: const Color(0xFF6B7280)),
         const SizedBox(width: 4),
-        Text(label, style: const TextStyle(fontSize: 11, color: Color(0xFF6B7280))),
+        Flexible(
+          child: Text(
+            label,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(fontSize: 11, color: Color(0xFF6B7280)),
+          ),
+        ),
       ],
     );
   }

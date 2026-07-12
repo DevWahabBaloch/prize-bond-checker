@@ -381,7 +381,7 @@ class _MyBondsScreenState extends State<MyBondsScreen> {
                       Navigator.pop(context);
                       final scannedNumber = await Navigator.push(
                         context,
-                        MaterialPageRoute(builder: (_) => const ScannerScreen()),
+                        MaterialPageRoute(builder: (_) => ScannerScreen(initialDenomination: selectedDenomination)),
                       );
                       if (scannedNumber != null) {
                         _showAddBondDialog(prefillNumber: scannedNumber);
