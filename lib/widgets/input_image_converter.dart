@@ -4,13 +4,6 @@ import 'package:camera/camera.dart';
 import 'package:flutter/services.dart';
 import 'package:google_mlkit_text_recognition/google_mlkit_text_recognition.dart';
 
-/// Converts a raw [CameraImage] coming from the `camera` package's image
-/// stream into an [InputImage] that Google ML Kit can process.
-///
-/// The camera controller MUST be configured with a single-plane
-/// [ImageFormatGroup] (`nv21` on Android, `bgra8888` on iOS) for this
-/// conversion to work — see how [CameraController] is created in
-/// `scanner_screen.dart`.
 class InputImageConverter {
   InputImageConverter._();
 
@@ -21,8 +14,6 @@ class InputImageConverter {
     DeviceOrientation.landscapeRight: 270,
   };
 
-  /// Returns `null` if the frame cannot be safely converted. Callers
-  /// should simply skip that frame rather than throw.
   static InputImage? fromCameraImage({
     required CameraImage image,
     required CameraController controller,

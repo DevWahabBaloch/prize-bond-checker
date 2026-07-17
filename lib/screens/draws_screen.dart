@@ -67,11 +67,9 @@ class _DrawsScreenState extends State<DrawsScreen> {
 
   @override
   Widget build(BuildContext context) {
-    // Responsive helpers: adapt paddings/font sizes to screen width and
-    // respect safe-area insets (notch / status bar) instead of hardcoded values.
     final screenWidth = MediaQuery.of(context).size.width;
     final topInset = MediaQuery.of(context).padding.top;
-    final isWide = screenWidth >= 600; // tablets / foldables / desktop web
+    final isWide = screenWidth >= 600;
     final maxContentWidth = isWide ? 720.0 : double.infinity;
     final horizontalPagePadding = isWide ? 24.0 : 20.0;
 
@@ -115,8 +113,6 @@ class _DrawsScreenState extends State<DrawsScreen> {
           end: Alignment.bottomRight,
         ),
       ),
-      // Top padding now respects the safe area (status bar / notch) instead
-      // of a fixed vertical value, so it looks correct across devices.
       padding: EdgeInsets.fromLTRB(isWide ? 24 : 20, topInset + 12, isWide ? 24 : 16, 24),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -303,9 +299,7 @@ class _DrawsScreenState extends State<DrawsScreen> {
                             ),
                           ),
                           const SizedBox(height: 4),
-                          // Wrap instead of a rigid Row so city + draw number
-                          // never overflow on narrow screens; they simply
-                          // wrap to a second line when space is tight.
+
                           Wrap(
                             spacing: 12,
                             runSpacing: 4,

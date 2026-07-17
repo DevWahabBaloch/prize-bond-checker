@@ -27,28 +27,6 @@ class _HistoryScreenState extends State<HistoryScreen> with SingleTickerProvider
   DateTime? _toDate;
   bool _isDownloading = false;
 
-  // final List<String> denominations = [
-  //   'All',
-  //   'Rs. 100',
-  //   'Rs. 200',
-  //   'Rs. 750',
-  //   'Rs. 1500',
-  //   'Rs. 7500',
-  //   'Rs. 15000',
-  //   'Rs. 25000',
-  //   'Rs. 40000',
-  // ];
-  // final List<String> cities = [
-  //   'All',
-  //   'Lahore',
-  //   'Karachi',
-  //   'Islamabad',
-  //   'Rawalpindi',
-  //   'Multan',
-  //   'Faisalabad',
-  //   'Hyderabad',
-  //   'Quetta',
-  // ];
   final List<String> denominations = ['All', ...AppConfig.denominations];
   final List<String> cities = ['All', ...AppConfig.drawCities];
 
@@ -66,7 +44,6 @@ class _HistoryScreenState extends State<HistoryScreen> with SingleTickerProvider
     super.dispose();
   }
 
-  // REPLACE _filteredCompleted with:
   List<DrawResult> _applyFilters(List<DrawResult> all) {
     return all.where((d) {
       final matchesDenom = _selectedDenomination == 'All' || d.denomination == _selectedDenomination;
@@ -541,7 +518,7 @@ class _HistoryScreenState extends State<HistoryScreen> with SingleTickerProvider
       valueListenable: Hive.box<DrawResult>('draws').listenable(),
       builder: (context, Box<DrawResult> box, _) {
         final all = box.values.where((d) => d.status == 'completed').toList();
-        final filtered = _applyFilters(all); // ← was _filteredCompleted(all)
+        final filtered = _applyFilters(all);
         return filtered.isEmpty
             ? _buildEmptyState()
             : ListView.builder(

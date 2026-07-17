@@ -12,23 +12,9 @@ import 'package:prize_bond_checking_app/services/notification_service.dart';
 import 'package:prize_bond_checking_app/widgets/bond_number_extractor.dart';
 import 'package:prize_bond_checking_app/widgets/input_image_converter.dart';
 
-/// Result of checking a scanned bond number against completed draws.
 enum _BondCheckStatus { won, lost, invalid }
 
-/// Real-time OCR scanner for 6-digit Pakistan Prize Bond numbers.
-///
-/// The camera preview streams frames continuously; frames are throttled
-/// and run through Google ML Kit text recognition until a valid 6-digit
-/// number is found. As soon as a number is detected, it is immediately
-/// checked against completed draws (for the selected denomination) and
-/// the result — Won / No Win / Wrong Number — is shown right here,
-/// before the caller even receives the scanned value back.
 class ScannerScreen extends StatefulWidget {
-  /// Optional denomination to check against. If the calling screen
-  /// already has one selected (e.g. Check Bond screen), pass it in so
-  /// the scanner checks against the right draw set. Defaults to
-  /// the app's default denomination if not provided; the user can still
-  /// change it on this screen via the denomination picker.
   final String? initialDenomination;
 
   const ScannerScreen({super.key, this.initialDenomination});
@@ -38,33 +24,24 @@ class ScannerScreen extends StatefulWidget {
 }
 
 class _ScannerScreenState extends State<ScannerScreen> with WidgetsBindingObserver {
-  // --- Camera / OCR state -------------------------------------------------
   List<CameraDescription>? _cameras;
   CameraDescription? _backCamera;
   CameraController? _cameraController;
   final TextRecognizer _textRecognizer = TextRecognizer(script: TextRecognitionScript.latin);
 
-  /// Throttle: only process one frame per this interval, so OCR doesn't
-  /// run on every single camera frame (which would lag the UI).
   static const Duration _frameThrottle = Duration(milliseconds: 300);
   DateTime? _lastFrameProcessedAt;
 
-  /// Guards against overlapping OCR calls while one frame is still
-  /// being processed.
   bool _isProcessingFrame = false;
 
-  /// Set the instant a valid bond number is found, so any in-flight or
-  /// queued frame callbacks become no-ops (scan-once behaviour).
   bool _isDetected = false;
 
-  // --- UI state (kept from the original implementation) ------------------
   bool _isScanning = false;
   bool _isInitializingCamera = false;
   String? _scannedNumber;
   bool _isFlashOn = false;
   String? _errorMessage;
 
-  // --- Win/loss checking state --------------------------------------------
   final DrawService _drawService = DrawService();
   late String _selectedDenomination;
   _BondCheckStatus? _checkStatus;
@@ -104,10 +81,6 @@ class _ScannerScreenState extends State<ScannerScreen> with WidgetsBindingObserv
     }
   }
 
-  // ---------------------------------------------------------------------
-  // Camera lifecycle
-  // ---------------------------------------------------------------------
-
   Future<bool> _ensureCameraInitialized() async {
     final existing = _cameraController;
     if (existing != null && existing.value.isInitialized) {
@@ -128,25 +101,19 @@ class _ScannerScreenState extends State<ScannerScreen> with WidgetsBindingObserv
         _backCamera!,
         ResolutionPreset.medium,
         enableAudio: false,
-        // Single-plane formats keep the InputImage conversion simple
-        // and fast: nv21 on Android, bgra8888 on iOS.
+
         imageFormatGroup: Platform.isAndroid ? ImageFormatGroup.nv21 : ImageFormatGroup.bgra8888,
       );
 
       await controller.initialize();
 
-      // Continuous autofocus so the user never has to tap the screen.
       try {
         await controller.setFocusMode(FocusMode.auto);
-      } catch (_) {
-        // Not all devices support programmatic focus mode changes.
-      }
+      } catch (_) {}
 
       try {
         await controller.setFlashMode(_isFlashOn ? FlashMode.torch : FlashMode.off);
-      } catch (_) {
-        // Some devices (or the front camera) don't support flash.
-      }
+      } catch (_) {}
 
       _cameraController = controller;
       return true;
@@ -196,10 +163,6 @@ class _ScannerScreenState extends State<ScannerScreen> with WidgetsBindingObserv
     }
   }
 
-  // ---------------------------------------------------------------------
-  // OCR pipeline
-  // ---------------------------------------------------------------------
-
   Future<void> _processCameraImage(CameraImage image) async {
     if (!_isScanning || _isDetected || _isProcessingFrame) return;
 
@@ -232,7 +195,7 @@ class _ScannerScreenState extends State<ScannerScreen> with WidgetsBindingObserv
   }
 
   Future<void> _handleBondNumberDetected(String number) async {
-    if (_isDetected) return; // Already handled by another in-flight frame.
+    if (_isDetected) return;
     _isDetected = true;
 
     await _stopImageStream();
@@ -243,17 +206,9 @@ class _ScannerScreenState extends State<ScannerScreen> with WidgetsBindingObserv
     await _evaluateAndRecordBond(number);
   }
 
-  // ---------------------------------------------------------------------
-  // Win / loss / invalid checking
-  // ---------------------------------------------------------------------
-
-  /// Very small sanity check to catch obvious OCR misreads that still
-  /// happen to be 6 digits (e.g. picking up noise/borders as
-  /// "000000" or "111111"). Real printed bond numbers won't look like
-  /// this, so we flag it instead of silently treating it as "No Win".
   bool _looksLikeInvalidNumber(String number) {
     if (number.length != 6) return true;
-    return RegExp(r'^(\d)\1{5}$').hasMatch(number); // all 6 digits identical
+    return RegExp(r'^(\d)\1{5}$').hasMatch(number);
   }
 
   Future<void> _evaluateAndRecordBond(String number) async {
@@ -303,10 +258,6 @@ class _ScannerScreenState extends State<ScannerScreen> with WidgetsBindingObserv
       _matchedDraw = result;
     });
   }
-
-  // ---------------------------------------------------------------------
-  // User actions
-  // ---------------------------------------------------------------------
 
   Future<void> _startScanning() async {
     if (_isScanning || _isInitializingCamera) return;
@@ -378,10 +329,6 @@ class _ScannerScreenState extends State<ScannerScreen> with WidgetsBindingObserv
     });
   }
 
-  // ---------------------------------------------------------------------
-  // UI
-  // ---------------------------------------------------------------------
-
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -449,7 +396,7 @@ class _ScannerScreenState extends State<ScannerScreen> with WidgetsBindingObserv
                       ),
                     ],
                     if (_scannedNumber != null) ...[const SizedBox(height: 24), _buildResultCard()],
-                    const SizedBox(height: 90), // keeps content clear of the bottom action button
+                    const SizedBox(height: 90),
                   ],
                 ),
               ),
@@ -495,9 +442,6 @@ class _ScannerScreenState extends State<ScannerScreen> with WidgetsBindingObserv
     );
   }
 
-  /// Renders either the live camera preview (cropped/covered to fill the
-  /// scanning box, same visual footprint as the old MobileScanner view)
-  /// or an error/loading state.
   Widget _buildScanningView() {
     if (_errorMessage != null) {
       return _buildErrorView();

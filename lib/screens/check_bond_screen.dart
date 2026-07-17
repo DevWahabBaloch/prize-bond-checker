@@ -55,11 +55,7 @@ class _CheckBondScreenState extends State<CheckBondScreen> {
     await _drawService.updateSavedBondAfterCheck(number: number, denomination: _selectedDenomination, result: result);
 
     if (result != null) {
-      await NotificationService().showWinNotification(
-        bondNumber: number,
-        denomination: _selectedDenomination,
-        city: result.city,
-      );
+      await NotificationService().showWinNotification(bondNumber: number, denomination: _selectedDenomination, city: result.city);
     }
 
     final record = CheckRecord()

@@ -39,11 +39,9 @@ class _CheckHistoryScreenState extends State<CheckHistoryScreen> {
 
   @override
   Widget build(BuildContext context) {
-    // Responsive helpers: adapt to screen width and respect the device's
-    // safe-area insets (notches / status bar) instead of hardcoded values.
     final screenWidth = MediaQuery.of(context).size.width;
     final topInset = MediaQuery.of(context).padding.top;
-    final isWide = screenWidth >= 600; // tablets / foldables / desktop web
+    final isWide = screenWidth >= 600;
     final maxContentWidth = isWide ? 720.0 : double.infinity;
     final horizontalPagePadding = isWide ? 24.0 : 20.0;
 
@@ -87,8 +85,7 @@ class _CheckHistoryScreenState extends State<CheckHistoryScreen> {
         ),
         borderRadius: BorderRadius.only(bottomLeft: Radius.circular(32), bottomRight: Radius.circular(32)),
       ),
-      // Top padding now respects the safe area (status bar / notch) instead
-      // of a fixed 50px, so it looks correct across different devices.
+
       padding: EdgeInsets.fromLTRB(8, topInset + 12, 16, 24),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -104,11 +101,7 @@ class _CheckHistoryScreenState extends State<CheckHistoryScreen> {
                   'Check History',
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontSize: isWide ? 24 : 22,
-                    fontWeight: FontWeight.bold,
-                  ),
+                  style: TextStyle(color: Colors.white, fontSize: isWide ? 24 : 22, fontWeight: FontWeight.bold),
                 ),
               ),
 
@@ -188,9 +181,6 @@ class _CheckHistoryScreenState extends State<CheckHistoryScreen> {
           ),
           const SizedBox(height: 10),
 
-          // Wrapped in a horizontal scroll view so this row can never
-          // overflow on narrow screens or with larger accessibility
-          // text-scaling settings (it used to be a plain, non-scrollable Row).
           SingleChildScrollView(
             scrollDirection: Axis.horizontal,
             child: Row(
@@ -248,8 +238,6 @@ class _CheckHistoryScreenState extends State<CheckHistoryScreen> {
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                // Flexible so a long bond number / denomination label can
-                // never push the status badge off-screen on narrow devices.
                 Flexible(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
@@ -304,10 +292,7 @@ class _CheckHistoryScreenState extends State<CheckHistoryScreen> {
                 borderRadius: BorderRadius.circular(10),
                 border: Border.all(color: const Color(0xFFE5E7EB)),
               ),
-              // Flexible chips + a Spacer instead of a rigid Row: on wide
-              // screens it lays out exactly as before (draw # and date on
-              // the left, time on the right); on narrow screens the chips
-              // shrink with an ellipsis instead of overflowing.
+
               child: Row(
                 children: [
                   Flexible(child: _infoChip(Icons.numbers_outlined, 'Draw #${record.drawNumber}')),

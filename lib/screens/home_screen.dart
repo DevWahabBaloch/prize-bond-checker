@@ -150,9 +150,7 @@ class _HomeScreenState extends State<HomeScreen> {
         ),
         borderRadius: BorderRadius.only(bottomLeft: Radius.circular(32), bottomRight: Radius.circular(32)),
       ),
-      // Top padding now respects the safe area (status bar / notch) instead
-      // of stacking on top of an oversized inner block, so the header no
-      // longer has a large empty gap before "Welcome back,".
+
       padding: EdgeInsets.fromLTRB(hPad, topInset + 16, hPad, 20),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -179,8 +177,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 ),
               ),
               const SizedBox(width: 8),
-              // Small top padding so the bell sits level with "Welcome back,"
-              // instead of centering itself against the whole tall column.
+
               Padding(
                 padding: const EdgeInsets.only(top: 2),
                 child: Stack(

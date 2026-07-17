@@ -88,8 +88,6 @@ class DrawService {
     final prefs = await SharedPreferences.getInstance();
     final alreadyNotified = prefs.getBool('draw_notif_seeded') ?? false;
     if (!alreadyNotified) {
-      // New-draw announcements are seeded once because this local demo app has
-      // no live backend that can publish genuinely new official draw records.
       final upcomingDraws = getUpcoming();
       for (final d in upcomingDraws) {
         await NotificationService().showNewDrawNotification(denomination: d.denomination, date: d.drawDate, city: d.city);
