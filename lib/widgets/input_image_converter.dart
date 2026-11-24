@@ -1,6 +1,5 @@
-import 'dart:io';
-
 import 'package:camera/camera.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:google_mlkit_text_recognition/google_mlkit_text_recognition.dart';
 
@@ -22,11 +21,22 @@ class InputImageConverter {
     final rotation = _getInputImageRotation(controller, cameraDescription);
     if (rotation == null) return null;
 
-    final format = InputImageFormatValue.fromRawValue(image.format.raw);
-    if (format == null) return null;
-
-    if (image.planes.isEmpty) return null;
-    final plane = image.planes.first;
+    final rawFormat = image.format.raw;
+    if (rawFormat is! int || image.width <= 0 || image.height <= 0 || image.planes.length != 1) return null;
+    final format = InputImageFormatValue.fromRawValue(rawFormat);
+    final plane = image.planes.single;
+    final valid = switch (defaultTargetPlatform) {
+      TargetPlatform.android =>
+        format == InputImageFormat.nv21 &&
+            plane.bytesPerRow == image.width &&
+            plane.bytes.length == image.width * image.height * 3 ~/ 2,
+      TargetPlatform.iOS =>
+        format == InputImageFormat.bgra8888 &&
+            plane.bytesPerRow >= image.width * 4 &&
+            plane.bytes.length >= plane.bytesPerRow * image.height,
+      _ => false,
+    };
+    if (!valid || format == null) return null;
 
     return InputImage.fromBytes(
       bytes: plane.bytes,
@@ -42,11 +52,11 @@ class InputImageConverter {
   static InputImageRotation? _getInputImageRotation(CameraController controller, CameraDescription cameraDescription) {
     final sensorOrientation = cameraDescription.sensorOrientation;
 
-    if (Platform.isIOS) {
+    if (defaultTargetPlatform == TargetPlatform.iOS) {
       return InputImageRotationValue.fromRawValue(sensorOrientation);
     }
 
-    if (Platform.isAndroid) {
+    if (defaultTargetPlatform == TargetPlatform.android) {
       final deviceOrientation = controller.value.deviceOrientation;
       final baseRotation = _orientationDegrees[deviceOrientation];
       if (baseRotation == null) return null;

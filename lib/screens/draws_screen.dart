@@ -1,10 +1,11 @@
 import 'package:flutter/material.dart';
+import 'package:prize_bond_checking_app/services/auth_service.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import 'package:intl/intl.dart';
 import 'package:prize_bond_checking_app/config/app_config.dart';
 import 'package:prize_bond_checking_app/models/draw_result_model.dart';
 import 'package:prize_bond_checking_app/services/draw_service.dart';
-import 'package:prize_bond_checking_app/services/notification_service.dart';
+import 'package:prize_bond_checking_app/widgets/draw_reminder_dialog.dart';
 import 'package:prize_bond_checking_app/widgets/draw_filter_sheet.dart';
 
 class DrawsScreen extends StatefulWidget {
@@ -15,6 +16,8 @@ class DrawsScreen extends StatefulWidget {
 }
 
 class _DrawsScreenState extends State<DrawsScreen> {
+  late final _storage = AuthService.requireStorage();
+
   String _selectedDenomination = 'All';
   final DrawService _drawService = DrawService();
 
@@ -86,7 +89,7 @@ class _DrawsScreenState extends State<DrawsScreen> {
                 child: ValueListenableBuilder(
                   valueListenable: Hive.box<DrawResult>('draws').listenable(),
                   builder: (context, Box<DrawResult> box, _) {
-                    final draws = _filteredDraws(box.values.toList());
+                    final draws = _filteredDraws(_drawService.getAll());
                     return draws.isEmpty
                         ? _buildEmptyState()
                         : ListView.builder(
@@ -142,7 +145,7 @@ class _DrawsScreenState extends State<DrawsScreen> {
           ),
           const SizedBox(height: 12),
           Text(
-            'View all prize bond draw schedules',
+            AppConfig.simulatedResultsLabel,
             style: TextStyle(color: Colors.white.withOpacity(0.9), fontSize: isWide ? 15 : 14),
           ),
         ],
@@ -229,9 +232,10 @@ class _DrawsScreenState extends State<DrawsScreen> {
   }
 
   Widget _buildDrawCard(DrawResult draw, bool isWide) {
-    final isUpcoming = draw.status == 'upcoming';
-    final isToday = draw.status == 'today';
-    final isCompleted = draw.status == 'completed';
+    final status = _drawService.statusOf(draw);
+    final isUpcoming = status == DrawStatus.upcoming;
+    final isToday = status == DrawStatus.today;
+    final isCompleted = status == DrawStatus.completed;
 
     Color statusColor;
     String statusText;
@@ -411,24 +415,7 @@ class _DrawsScreenState extends State<DrawsScreen> {
     );
   }
 
-  Future<void> _setReminder(DrawResult draw) async {
-    await NotificationService().showNewDrawNotification(denomination: draw.denomination, date: draw.drawDate, city: draw.city);
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Row(
-          children: [
-            const Icon(Icons.notifications_active, color: Colors.white, size: 18),
-            const SizedBox(width: 8),
-            Expanded(child: Text('Reminder set for ${draw.denomination} draw on ${draw.drawDate}')),
-          ],
-        ),
-        backgroundColor: const Color(0xFF10B981),
-        behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-      ),
-    );
-  }
+  Future<void> _setReminder(DrawResult draw) => showDrawReminderDialog(context, _storage, draw);
 
   void _showDrawDetails(DrawResult draw) {
     showModalBottomSheet(
@@ -493,7 +480,7 @@ class _DrawsScreenState extends State<DrawsScreen> {
                     _buildDetailRow('Draw Date', draw.drawDate, Icons.calendar_today),
                     _buildDetailRow('Draw Location', draw.city, Icons.location_on),
                     _buildDetailRow('Draw Number', '#${draw.drawNumber}', Icons.numbers),
-                    if (draw.status == 'completed') ...[
+                    if (_drawService.statusOf(draw) == DrawStatus.completed) ...[
                       _buildDetailRow('1st Prize', '${draw.firstPrize} — ${draw.firstPrizeAmount}', Icons.emoji_events),
                       if (draw.secondPrize != null)
                         _buildDetailRow(
@@ -508,7 +495,7 @@ class _DrawsScreenState extends State<DrawsScreen> {
                           Icons.emoji_events_outlined,
                         ),
                     ],
-                    if (draw.status == 'completed' && draw.prizeWinners.isNotEmpty) ...[
+                    if (_drawService.statusOf(draw) == DrawStatus.completed && draw.prizeWinners.isNotEmpty) ...[
                       const SizedBox(height: 20),
                       const Text(
                         'All Prize Winners',
@@ -520,7 +507,7 @@ class _DrawsScreenState extends State<DrawsScreen> {
                       ),
                     ],
                     const SizedBox(height: 24),
-                    if (draw.status == 'upcoming' || draw.status == 'today') ...[
+                    if (_drawService.statusOf(draw) != DrawStatus.completed) ...[
                       SizedBox(
                         width: double.infinity,
                         child: ElevatedButton.icon(

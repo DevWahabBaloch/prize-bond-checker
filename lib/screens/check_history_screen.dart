@@ -1,5 +1,6 @@
+import 'package:prize_bond_checking_app/models/bond_check_result.dart';
 import 'package:flutter/material.dart';
-import 'package:hive_flutter/hive_flutter.dart';
+import 'package:prize_bond_checking_app/services/auth_service.dart';
 import 'package:prize_bond_checking_app/config/app_config.dart';
 import 'package:prize_bond_checking_app/models/check_record_model.dart';
 
@@ -11,11 +12,13 @@ class CheckHistoryScreen extends StatefulWidget {
 }
 
 class _CheckHistoryScreenState extends State<CheckHistoryScreen> {
+  late final _storage = AuthService.requireStorage();
+
   String _selectedDenomination = 'All';
   String _selectedResult = 'All';
 
   final List<String> denominations = ['All', ...AppConfig.denominations];
-  final List<String> results = ['All', 'Won', 'No Win'];
+  final List<String> results = ['All', ...BondCheckOutcome.values.map((outcome) => outcome.label)];
 
   List<CheckRecord> _filtered(List<CheckRecord> all) {
     return all.where((r) {
@@ -56,8 +59,8 @@ class _CheckHistoryScreenState extends State<CheckHistoryScreen> {
               _buildFilters(isWide),
               Expanded(
                 child: ValueListenableBuilder(
-                  valueListenable: Hive.box<CheckRecord>('check_history').listenable(),
-                  builder: (context, Box<CheckRecord> box, _) {
+                  valueListenable: _storage.history,
+                  builder: (context, PrivateRecords<CheckRecord> box, _) {
                     final records = _filtered(box.values.toList());
                     if (records.isEmpty) return _buildEmptyState();
                     return ListView.builder(
@@ -106,8 +109,8 @@ class _CheckHistoryScreenState extends State<CheckHistoryScreen> {
               ),
 
               ValueListenableBuilder(
-                valueListenable: Hive.box<CheckRecord>('check_history').listenable(),
-                builder: (context, Box<CheckRecord> box, _) {
+                valueListenable: _storage.history,
+                builder: (context, PrivateRecords<CheckRecord> box, _) {
                   if (box.isEmpty) return const SizedBox.shrink();
                   return IconButton(
                     icon: const Icon(Icons.delete_sweep_outlined, color: Colors.white),
@@ -267,19 +270,23 @@ class _CheckHistoryScreenState extends State<CheckHistoryScreen> {
                   ),
                 ),
                 const SizedBox(width: 12),
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-                  decoration: BoxDecoration(color: statusBg, borderRadius: BorderRadius.circular(12)),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(isWin ? Icons.emoji_events_rounded : Icons.sentiment_neutral_rounded, color: statusColor, size: 16),
-                      const SizedBox(width: 6),
-                      Text(
-                        record.resultStatus,
-                        style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: statusColor),
-                      ),
-                    ],
+                Flexible(
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                    decoration: BoxDecoration(color: statusBg, borderRadius: BorderRadius.circular(12)),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(isWin ? Icons.emoji_events_rounded : Icons.sentiment_neutral_rounded, color: statusColor, size: 16),
+                        const SizedBox(width: 6),
+                        Flexible(
+                          child: Text(
+                            record.resultStatus,
+                            style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: statusColor),
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
                 ),
               ],
@@ -349,18 +356,20 @@ class _CheckHistoryScreenState extends State<CheckHistoryScreen> {
     );
   }
 
-  void _confirmClearAll(Box<CheckRecord> box) {
+  void _confirmClearAll(PrivateRecords<CheckRecord> box) {
     showDialog(
       context: context,
-      builder: (_) => AlertDialog(
+      builder: (context) => AlertDialog(
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
         title: const Text('Clear History'),
         content: const Text('Are you sure you want to delete all check history? This cannot be undone.'),
         actions: [
           TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
           ElevatedButton(
-            onPressed: () {
-              box.clear();
+            onPressed: () async {
+              if (!AuthService.canUseStorage(_storage)) return;
+              await box.clear();
+              if (!mounted || !context.mounted || !AuthService.canUseStorage(_storage)) return;
               Navigator.pop(context);
               ScaffoldMessenger.of(context).showSnackBar(
                 const SnackBar(

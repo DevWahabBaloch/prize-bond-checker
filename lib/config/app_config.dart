@@ -26,13 +26,11 @@ class AppConfig {
     'Peshawar',
   ];
 
-  // Demo-only bootstrap password for the local admin fallback. A production
-  // app should use server-side authentication and role claims instead.
-  static const String adminPassword = 'admin@619';
-
   static const String appName = 'Prize Bond Checker';
+
+  static const String simulatedResultsLabel = 'Simulated FYP results';
 
   static const String dataDisclaimer =
       'Draw data is simulated for demonstration purposes as approved by the project supervisor. '
-      'No official National Savings API is used.';
+      'These are sample results. Consult National Savings for official results.';
 }

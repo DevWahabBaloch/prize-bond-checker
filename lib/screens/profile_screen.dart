@@ -1,16 +1,15 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
-import 'package:hive_flutter/hive_flutter.dart';
 import 'package:open_file/open_file.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:prize_bond_checking_app/models/bond_model.dart';
 import 'package:prize_bond_checking_app/models/check_record_model.dart';
-import 'package:prize_bond_checking_app/screens/admin/admin_screen.dart';
 import 'package:prize_bond_checking_app/screens/check_history_screen.dart';
 import 'package:prize_bond_checking_app/screens/my_bonds_screen.dart';
 import 'package:prize_bond_checking_app/screens/history_screen.dart';
 import 'package:prize_bond_checking_app/screens/auth/landing_screen.dart';
 import 'package:prize_bond_checking_app/services/auth_service.dart';
+import 'package:prize_bond_checking_app/services/draw_reminder_service.dart';
 
 class ProfileScreen extends StatefulWidget {
   const ProfileScreen({super.key});
@@ -20,16 +19,19 @@ class ProfileScreen extends StatefulWidget {
 }
 
 class _ProfileScreenState extends State<ProfileScreen> {
+  late final _storage = AuthService.requireStorage();
+
   bool notificationsEnabled = true;
   bool winAlertsEnabled = true;
   bool drawRemindersEnabled = true;
   bool marketplaceAlertsEnabled = false;
+  bool _savingNotificationPreference = false;
+  bool _notificationPreferencesLoaded = false;
 
   String _userName = 'User';
   String _email = '';
   String _phone = '';
   String _city = '';
-  String _role = 'Normal User';
   bool _isLoading = true;
 
   @override
@@ -39,38 +41,64 @@ class _ProfileScreenState extends State<ProfileScreen> {
   }
 
   Future<void> _loadAll() async {
-    await _loadUserProfile();
+    _loadUserProfile();
     await _loadNotifPrefs();
   }
 
-  Future<void> _loadUserProfile() async {
-    final profile = await AuthService.getUserProfile();
+  void _loadUserProfile() {
+    final profile = AuthService.profile(_storage);
     if (mounted) {
       setState(() {
-        _userName = profile['name'] ?? 'User';
-        _email = profile['email'] ?? 'user@example.com';
-        _phone = profile['phone'] ?? '+92 300 1234567';
-        _city = profile['city'] ?? 'Lahore';
-        _role = profile['role'] ?? 'Normal User';
+        _userName = profile.fullName;
+        _email = profile.email;
+        _phone = profile.mobile;
+        _city = profile.city;
         _isLoading = false;
       });
     }
   }
 
   Future<void> _loadNotifPrefs() async {
-    final prefs = await AuthService.getAllNotifPrefs();
-    if (mounted) {
+    final Map<String, bool> prefs;
+    try {
+      prefs = await AuthService.getAllNotifPrefs(_storage);
+    } on AccountException {
+      return;
+    }
+    if (mounted && AuthService.canUseStorage(_storage)) {
       setState(() {
         notificationsEnabled = prefs['all'] ?? true;
         winAlertsEnabled = prefs['win'] ?? true;
         drawRemindersEnabled = prefs['draw'] ?? true;
         marketplaceAlertsEnabled = prefs['marketplace'] ?? false;
+        _notificationPreferencesLoaded = true;
       });
     }
   }
 
   Future<void> _saveNotifPref(String key, bool value) async {
-    await AuthService.setNotifPref(key, value);
+    if (!_notificationPreferencesLoaded || _savingNotificationPreference || !AuthService.canUseStorage(_storage)) return;
+    setState(() => _savingNotificationPreference = true);
+    try {
+      await AuthService.setNotifPref(_storage, key, value);
+      await _loadNotifPrefs();
+      if ((key == 'all' || key == 'draw') && AuthService.canUseStorage(_storage)) {
+        final reconciled = await DrawReminderService().reconcile(_storage);
+        if (!reconciled && mounted && AuthService.canUseStorage(_storage)) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Preference saved. Could not confirm pending reminders. Check the draw reminder to retry.'),
+            ),
+          );
+        }
+      }
+    } on AccountException catch (error) {
+      if (mounted && AuthService.canUseStorage(_storage)) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(error.message)));
+      }
+    } finally {
+      if (mounted) setState(() => _savingNotificationPreference = false);
+    }
   }
 
   @override
@@ -231,11 +259,11 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
   Widget _buildStatsSection() {
     return ValueListenableBuilder(
-      valueListenable: Hive.box<Bond>('bonds').listenable(),
-      builder: (context, Box<Bond> bondsBox, _) {
+      valueListenable: _storage.bonds,
+      builder: (context, PrivateRecords<Bond> bondsBox, _) {
         return ValueListenableBuilder(
-          valueListenable: Hive.box<CheckRecord>('check_history').listenable(),
-          builder: (context, Box<CheckRecord> checksBox, _) {
+          valueListenable: _storage.history,
+          builder: (context, PrivateRecords<CheckRecord> checksBox, _) {
             final savedBonds = bondsBox.length;
             final checks = checksBox.length;
             final wins = bondsBox.values.where((b) => b.status == 'Won').length;
@@ -339,15 +367,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
               onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const CheckHistoryScreen())),
             ),
             _buildDivider(),
-            if (_role == 'Admin') ...[
-              _buildMenuItem(
-                icon: Icons.admin_panel_settings_rounded,
-                title: 'Admin Panel',
-                subtitle: 'Review registrations and approvals',
-                onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const AdminScreen())),
-              ),
-              _buildDivider(),
-            ],
             _buildMenuItem(
               icon: Icons.download_done_rounded,
               title: 'Downloaded Results',
@@ -452,53 +471,42 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 Icon(Icons.notifications_rounded, color: Color(0xFF2D5BFF), size: 24),
                 SizedBox(width: 12),
                 Text(
-                  'Notification Settings',
+                  'Device Notifications',
                   style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Color(0xFF1F2937)),
                 ),
               ],
             ),
             const SizedBox(height: 20),
             _buildSwitchTile(
-              title: 'All Notifications',
-              subtitle: 'Enable/disable all notifications',
+              title: 'All Device Alerts',
+              subtitle: 'In-app inbox notices are still recorded when alerts are off.',
               value: notificationsEnabled,
-              onChanged: (val) {
-                setState(() => notificationsEnabled = val);
-                _saveNotifPref('all', val);
-              },
+              onChanged: (value) => _saveNotifPref('all', value),
+              enabled: _notificationPreferencesLoaded && !_savingNotificationPreference,
             ),
             const SizedBox(height: 12),
             _buildSwitchTile(
               title: 'Win Alerts',
-              subtitle: 'Get notified when your bond wins',
+              subtitle: 'Device alerts for matching bonds',
               value: winAlertsEnabled,
-              onChanged: (val) {
-                setState(() => winAlertsEnabled = val);
-                _saveNotifPref('win', val);
-              },
-              enabled: notificationsEnabled,
+              onChanged: (value) => _saveNotifPref('win', value),
+              enabled: _notificationPreferencesLoaded && notificationsEnabled && !_savingNotificationPreference,
             ),
             const SizedBox(height: 12),
             _buildSwitchTile(
-              title: 'Draw Reminders',
-              subtitle: 'Upcoming draw notifications',
+              title: 'Draw Alerts and Reminders',
+              subtitle: 'Device alerts for sample draws, results, and scheduled reminders',
               value: drawRemindersEnabled,
-              onChanged: (val) {
-                setState(() => drawRemindersEnabled = val);
-                _saveNotifPref('draw', val);
-              },
-              enabled: notificationsEnabled,
+              onChanged: (value) => _saveNotifPref('draw', value),
+              enabled: _notificationPreferencesLoaded && notificationsEnabled && !_savingNotificationPreference,
             ),
             const SizedBox(height: 12),
             _buildSwitchTile(
               title: 'Marketplace Alerts',
-              subtitle: 'Messages from buyers/sellers',
+              subtitle: 'Unavailable in the offline demo',
               value: marketplaceAlertsEnabled,
-              onChanged: (val) {
-                setState(() => marketplaceAlertsEnabled = val);
-                _saveNotifPref('marketplace', val);
-              },
-              enabled: notificationsEnabled,
+              onChanged: null,
+              enabled: false,
             ),
           ],
         ),
@@ -510,7 +518,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
     required String title,
     required String subtitle,
     required bool value,
-    required ValueChanged<bool> onChanged,
+    required ValueChanged<bool>? onChanged,
     bool enabled = true,
   }) {
     return Container(
@@ -575,84 +583,80 @@ class _ProfileScreenState extends State<ProfileScreen> {
     );
   }
 
-  void _showEditProfileDialog() {
-    final nameController = TextEditingController(text: _userName);
-    final emailController = TextEditingController(text: _email);
-    final phoneController = TextEditingController(text: _phone);
-    final cityController = TextEditingController(text: _city);
+  Future<void> _showEditProfileDialog() async {
+    var name = _userName;
+    var email = _email;
+    var phone = _phone;
+    var city = _city;
+    String? error;
+    var saving = false;
 
-    showDialog(
+    final updated = await showDialog<bool>(
       context: context,
-      builder: (context) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-        title: const Text('Edit Profile'),
-        content: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              TextField(
-                controller: nameController,
-                decoration: InputDecoration(
-                  labelText: 'Full Name',
-                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-                  prefixIcon: const Icon(Icons.person),
-                ),
-              ),
-              const SizedBox(height: 16),
-              TextField(
-                controller: emailController,
-                decoration: InputDecoration(
-                  labelText: 'Email',
-                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-                  prefixIcon: const Icon(Icons.email),
-                ),
-              ),
-              const SizedBox(height: 16),
-              TextField(
-                controller: phoneController,
-                decoration: InputDecoration(
-                  labelText: 'Phone',
-                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-                  prefixIcon: const Icon(Icons.phone),
-                ),
-              ),
-              const SizedBox(height: 16),
-              TextField(
-                controller: cityController,
-                decoration: InputDecoration(
-                  labelText: 'City',
-                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-                  prefixIcon: const Icon(Icons.location_on),
-                ),
-              ),
-            ],
-          ),
-        ),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
-          ElevatedButton(
-            onPressed: () async {
-              await AuthService.saveUserProfile(
-                email: emailController.text,
-                name: nameController.text,
-                city: cityController.text,
-                phone: phoneController.text,
-                address: 'Updated Address',
-                role: _role,
-              );
-              await _loadUserProfile();
-              if (mounted) {
-                Navigator.pop(context);
-                ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Profile updated successfully!')));
-              }
-            },
-            style: ElevatedButton.styleFrom(
-              backgroundColor: const Color(0xFF2D5BFF),
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      builder: (context) => StatefulBuilder(
+        builder: (context, update) => AlertDialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+          title: const Text('Edit Profile'),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                _profileField('Full Name', Icons.person, name, (value) => name = value),
+                const SizedBox(height: 16),
+                _profileField('Email', Icons.email, email, (value) => email = value),
+                const SizedBox(height: 16),
+                _profileField('Phone', Icons.phone, phone, (value) => phone = value),
+                const SizedBox(height: 16),
+                _profileField('City', Icons.location_on, city, (value) => city = value),
+                if (error != null) ...[
+                  const SizedBox(height: 12),
+                  Text(error!, style: TextStyle(color: Theme.of(context).colorScheme.error)),
+                ],
+              ],
             ),
-            child: const Text('Save', style: TextStyle(color: Colors.white)),
           ),
-        ],
+          actions: [
+            TextButton(onPressed: saving ? null : () => Navigator.pop(context), child: const Text('Cancel')),
+            ElevatedButton(
+              onPressed: saving
+                  ? null
+                  : () async {
+                      update(() => saving = true);
+                      try {
+                        await AuthService.saveUserProfile(storage: _storage, email: email, name: name, city: city, phone: phone);
+                        if (context.mounted && AuthService.canUseStorage(_storage)) Navigator.pop(context, true);
+                      } on AccountException catch (failure) {
+                        if (context.mounted) update(() => error = failure.message);
+                      } catch (_) {
+                        if (context.mounted) update(() => error = 'Could not save these changes.');
+                      } finally {
+                        if (context.mounted) update(() => saving = false);
+                      }
+                    },
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFF2D5BFF),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              ),
+              child: const Text('Save', style: TextStyle(color: Colors.white)),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (updated == true && mounted && AuthService.canUseStorage(_storage)) {
+      _loadUserProfile();
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Profile updated successfully!')));
+    }
+  }
+
+  Widget _profileField(String label, IconData icon, String value, ValueChanged<String> onChanged) {
+    return TextFormField(
+      initialValue: value,
+      onChanged: onChanged,
+      decoration: InputDecoration(
+        labelText: label,
+        border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+        prefixIcon: Icon(icon),
       ),
     );
   }
@@ -668,9 +672,21 @@ class _ProfileScreenState extends State<ProfileScreen> {
           TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
           ElevatedButton(
             onPressed: () async {
-              await AuthService.logout();
+              try {
+                await AuthService.logout();
+              } catch (_) {
+                if (mounted) {
+                  ScaffoldMessenger.of(this.context).showSnackBar(
+                    const SnackBar(content: Text('Signed out. The account may still be selected after restarting the app.')),
+                  );
+                }
+              }
               if (mounted) {
-                Navigator.pushAndRemoveUntil(context, MaterialPageRoute(builder: (_) => const LandingScreen()), (route) => false);
+                Navigator.pushAndRemoveUntil(
+                  this.context,
+                  MaterialPageRoute(builder: (_) => const LandingScreen()),
+                  (route) => false,
+                );
               }
             },
             style: ElevatedButton.styleFrom(

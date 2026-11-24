@@ -1,15 +1,14 @@
 import 'dart:io';
+
 import 'package:flutter/material.dart';
+import 'package:prize_bond_checking_app/services/auth_service.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import 'package:intl/intl.dart';
-import 'package:path_provider/path_provider.dart';
-import 'package:pdf/pdf.dart';
-import 'package:pdf/widgets.dart' as pw;
-import 'package:open_file/open_file.dart';
 import 'package:prize_bond_checking_app/config/app_config.dart';
 import 'package:prize_bond_checking_app/models/draw_result_model.dart';
+import 'package:prize_bond_checking_app/services/draw_report_service.dart';
 import 'package:prize_bond_checking_app/services/draw_service.dart';
-import 'package:prize_bond_checking_app/services/notification_service.dart';
+import 'package:prize_bond_checking_app/widgets/draw_reminder_dialog.dart';
 import 'package:prize_bond_checking_app/widgets/draw_filter_sheet.dart';
 
 class HistoryScreen extends StatefulWidget {
@@ -20,6 +19,8 @@ class HistoryScreen extends StatefulWidget {
 }
 
 class _HistoryScreenState extends State<HistoryScreen> with SingleTickerProviderStateMixin {
+  late final _storage = AuthService.requireStorage();
+
   late TabController _tabController;
   String _selectedDenomination = 'All';
   String _selectedCity = 'All';
@@ -31,6 +32,7 @@ class _HistoryScreenState extends State<HistoryScreen> with SingleTickerProvider
   final List<String> cities = ['All', ...AppConfig.drawCities];
 
   final DrawService _drawService = DrawService();
+  final _reports = const DrawReportService();
 
   @override
   void initState() {
@@ -82,308 +84,45 @@ class _HistoryScreenState extends State<HistoryScreen> with SingleTickerProvider
     'prizeWinners': d.prizeWinners.map((p) => {'position': p.position, 'number': p.number, 'amount': p.amount}).toList(),
   };
 
-  Future<void> _downloadPDF(Map<String, dynamic> draw) async {
+  bool get _canShowReportFeedback => mounted && AuthService.canUseStorage(_storage);
+
+  Future<void> _downloadPDF(DrawResult draw) async {
+    if (_isDownloading || !_canShowReportFeedback || _drawService.statusOf(draw) != DrawStatus.completed) return;
     setState(() => _isDownloading = true);
-
     try {
-      final pdf = pw.Document();
-
-      final headerBlue = PdfColor.fromHex('#2D5BFF');
-      final accentPurple = PdfColor.fromHex('#8B5CF6');
-      final goldColor = PdfColor.fromHex('#F59E0B');
-      final lightBlue = PdfColor.fromHex('#EFF6FF');
-      final darkText = PdfColor.fromHex('#1F2937');
-      final grayText = PdfColor.fromHex('#6B7280');
-      final lightGray = PdfColor.fromHex('#F9FAFB');
-      final borderGray = PdfColor.fromHex('#E5E7EB');
-
-      pdf.addPage(
-        pw.Page(
-          pageFormat: PdfPageFormat.a4,
-          margin: const pw.EdgeInsets.all(32),
-          build: (pw.Context context) {
-            return pw.Column(
-              crossAxisAlignment: pw.CrossAxisAlignment.start,
-              children: [
-                pw.Container(
-                  width: double.infinity,
-                  decoration: pw.BoxDecoration(
-                    gradient: pw.LinearGradient(
-                      colors: [headerBlue, accentPurple],
-                      begin: pw.Alignment.centerLeft,
-                      end: pw.Alignment.centerRight,
-                    ),
-                    borderRadius: pw.BorderRadius.circular(16),
-                  ),
-                  padding: const pw.EdgeInsets.all(24),
-                  child: pw.Column(
-                    crossAxisAlignment: pw.CrossAxisAlignment.start,
-                    children: [
-                      pw.Text(
-                        'Prize Bond Draw Results',
-                        style: pw.TextStyle(color: PdfColors.white, fontSize: 22, fontWeight: pw.FontWeight.bold),
-                      ),
-                      pw.SizedBox(height: 6),
-                      pw.Text('Official National Savings Draw List', style: pw.TextStyle(color: PdfColors.white, fontSize: 13)),
-                      pw.SizedBox(height: 16),
-                      pw.Row(
-                        children: [
-                          _pdfChip('Draw #${draw['drawNumber']}', PdfColors.white, headerBlue),
-                          pw.SizedBox(width: 10),
-                          _pdfChip(draw['denomination'], PdfColors.white, accentPurple),
-                        ],
-                      ),
-                    ],
-                  ),
-                ),
-
-                pw.SizedBox(height: 20),
-
-                pw.Row(
-                  children: [
-                    _infoBox('Date', draw['date'], grayText, lightGray, borderGray, darkText),
-                    pw.SizedBox(width: 12),
-                    _infoBox('City', draw['city'], grayText, lightGray, borderGray, darkText),
-                    pw.SizedBox(width: 12),
-                    _infoBox('Total Prizes', draw['totalPrizes'], grayText, lightGray, borderGray, darkText),
-                  ],
-                ),
-
-                pw.SizedBox(height: 20),
-
-                pw.Text(
-                  'Prize Winners',
-                  style: pw.TextStyle(fontSize: 16, fontWeight: pw.FontWeight.bold, color: darkText),
-                ),
-                pw.SizedBox(height: 12),
-
-                _prizeCard(
-                  rank: '1st Prize',
-                  amount: draw['firstPrizeAmount'],
-                  number: draw['firstPrize'],
-                  bgColor: PdfColor.fromHex('#FEF3C7'),
-                  rankColor: goldColor,
-                  textColor: PdfColor.fromHex('#78350F'),
-                ),
-
-                pw.SizedBox(height: 10),
-
-                _prizeCard(
-                  rank: '2nd Prize',
-                  amount: draw['secondPrizeAmount'] ?? 'N/A',
-                  number: draw['secondPrize'] ?? 'N/A',
-                  bgColor: PdfColor.fromHex('#F3F4F6'),
-                  rankColor: PdfColor.fromHex('#6B7280'),
-                  textColor: darkText,
-                ),
-
-                pw.SizedBox(height: 10),
-
-                _prizeCard(
-                  rank: '3rd Prize',
-                  amount: draw['thirdPrizeAmount'] ?? 'N/A',
-                  number: draw['thirdPrize'] ?? 'N/A',
-                  bgColor: PdfColor.fromHex('#FFF7ED'),
-                  rankColor: PdfColor.fromHex('#F97316'),
-                  textColor: darkText,
-                ),
-
-                pw.SizedBox(height: 24),
-
-                pw.Container(
-                  width: double.infinity,
-                  decoration: pw.BoxDecoration(
-                    color: lightBlue,
-                    borderRadius: pw.BorderRadius.circular(12),
-                    border: pw.Border.all(color: headerBlue, width: 0.5),
-                  ),
-                  padding: const pw.EdgeInsets.all(16),
-                  child: pw.Column(
-                    crossAxisAlignment: pw.CrossAxisAlignment.start,
-                    children: [
-                      pw.Text(
-                        '📱 Offline Access',
-                        style: pw.TextStyle(fontSize: 13, fontWeight: pw.FontWeight.bold, color: headerBlue),
-                      ),
-                      pw.SizedBox(height: 6),
-                      pw.Text(
-                        'This PDF has been saved to your device for offline checking. '
-                        'You can verify your prize bond numbers against this list '
-                        'even without an internet connection.',
-                        style: pw.TextStyle(fontSize: 11, color: grayText),
-                      ),
-                    ],
-                  ),
-                ),
-
-                pw.Spacer(),
-
-                pw.Divider(color: borderGray),
-                pw.SizedBox(height: 8),
-                pw.Row(
-                  mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
-                  children: [
-                    pw.Text(
-                      'Prize Bond Checker App • National Savings Pakistan',
-                      style: pw.TextStyle(fontSize: 10, color: grayText),
-                    ),
-                    pw.Text(
-                      'Generated: ${DateTime.now().day}/${DateTime.now().month}/${DateTime.now().year}',
-                      style: pw.TextStyle(fontSize: 10, color: grayText),
-                    ),
-                  ],
-                ),
-              ],
-            );
-          },
+      final file = await _reports.save(draw);
+      if (!mounted || !AuthService.canUseStorage(_storage)) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: const Text('PDF saved to app storage.'),
+          action: SnackBarAction(label: 'Open PDF', onPressed: () => _openReport(file)),
         ),
       );
-
-      final directory = await getApplicationDocumentsDirectory();
-      final fileName = 'Draw_${draw['drawNumber']}_${draw['denomination'].replaceAll('.', '').replaceAll(' ', '_')}.pdf';
-      final filePath = '${directory.path}/$fileName';
-      final file = File(filePath);
-      await file.writeAsBytes(await pdf.save());
-
-      setState(() => _isDownloading = false);
-
-      if (mounted) {
-        await OpenFile.open(filePath);
-
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Row(
-              children: [
-                const Icon(Icons.check_circle, color: Colors.white, size: 20),
-                const SizedBox(width: 10),
-                Expanded(child: Text('✅ PDF saved: $fileName', style: const TextStyle(fontSize: 13))),
-              ],
-            ),
-            backgroundColor: const Color(0xFF059669),
-            behavior: SnackBarBehavior.floating,
-            duration: const Duration(seconds: 4),
-          ),
-        );
-      }
-    } catch (e) {
-      setState(() => _isDownloading = false);
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Failed to generate PDF: $e'),
-            backgroundColor: const Color(0xFFEF4444),
-            behavior: SnackBarBehavior.floating,
-          ),
-        );
-      }
-    }
-  }
-
-  pw.Widget _pdfChip(String text, PdfColor textColor, PdfColor bg) {
-    return pw.Container(
-      padding: const pw.EdgeInsets.symmetric(horizontal: 12, vertical: 5),
-      decoration: pw.BoxDecoration(color: PdfColors.white, borderRadius: pw.BorderRadius.circular(20)),
-      child: pw.Text(
-        text,
-        style: pw.TextStyle(color: textColor, fontSize: 11, fontWeight: pw.FontWeight.bold),
-      ),
-    );
-  }
-
-  pw.Widget _infoBox(String label, String value, PdfColor labelColor, PdfColor bg, PdfColor border, PdfColor valueColor) {
-    return pw.Expanded(
-      child: pw.Container(
-        padding: const pw.EdgeInsets.all(14),
-        decoration: pw.BoxDecoration(
-          color: bg,
-          borderRadius: pw.BorderRadius.circular(10),
-          border: pw.Border.all(color: border),
-        ),
-        child: pw.Column(
-          crossAxisAlignment: pw.CrossAxisAlignment.start,
-          children: [
-            pw.Text(label, style: pw.TextStyle(fontSize: 10, color: labelColor)),
-            pw.SizedBox(height: 4),
-            pw.Text(
-              value,
-              style: pw.TextStyle(fontSize: 13, fontWeight: pw.FontWeight.bold, color: valueColor),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  pw.Widget _prizeCard({
-    required String rank,
-    required String amount,
-    required String number,
-    required PdfColor bgColor,
-    required PdfColor rankColor,
-    required PdfColor textColor,
-  }) {
-    return pw.Container(
-      width: double.infinity,
-      padding: const pw.EdgeInsets.all(16),
-      decoration: pw.BoxDecoration(color: bgColor, borderRadius: pw.BorderRadius.circular(12)),
-      child: pw.Row(
-        mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
-        children: [
-          pw.Column(
-            crossAxisAlignment: pw.CrossAxisAlignment.start,
-            children: [
-              pw.Text(
-                rank,
-                style: pw.TextStyle(fontSize: 11, fontWeight: pw.FontWeight.bold, color: rankColor),
-              ),
-              pw.SizedBox(height: 6),
-              pw.Text(
-                number,
-                style: pw.TextStyle(fontSize: 22, fontWeight: pw.FontWeight.bold, color: textColor),
-              ),
-            ],
-          ),
-          pw.Text(
-            amount,
-            style: pw.TextStyle(fontSize: 16, fontWeight: pw.FontWeight.bold, color: textColor),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Future<void> _setReminder(Map<String, dynamic> draw) async {
-    DateTime drawDateTime;
-    try {
-      drawDateTime = DateFormat('MMMM d, yyyy').parse(draw['date'] as String);
     } catch (_) {
-      drawDateTime = DateTime.now().add(const Duration(days: 1));
+      if (mounted && AuthService.canUseStorage(_storage)) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Could not save the PDF. Please try again.')));
+      }
+    } finally {
+      if (mounted) setState(() => _isDownloading = false);
     }
-
-    await NotificationService().showScheduledDrawReminder(
-      denomination: draw['denomination'] as String,
-      date: draw['date'] as String,
-      city: draw['city'] as String,
-      drawDateTime: drawDateTime,
-    );
-
-    if (!mounted) return;
-
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Row(
-          children: [
-            const Icon(Icons.notifications_active, color: Colors.white, size: 18),
-            const SizedBox(width: 8),
-            Expanded(child: Text('Reminder set for ${draw['denomination']} draw on ${draw['date']}')),
-          ],
-        ),
-        backgroundColor: const Color(0xFF10B981),
-        behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-      ),
-    );
   }
+
+  Future<void> _openReport(File file) async {
+    if (!_canShowReportFeedback) return;
+    var opened = false;
+    try {
+      opened = await _reports.open(file);
+    } catch (_) {
+      // The saved report is still available if the platform cannot open it.
+    }
+    if (mounted && AuthService.canUseStorage(_storage)) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(opened ? 'PDF viewer opened.' : 'PDF saved. The device could not open it.')),
+      );
+    }
+  }
+
+  Future<void> _setReminder(DrawResult draw) => showDrawReminderDialog(context, _storage, draw);
 
   @override
   Widget build(BuildContext context) {
@@ -453,12 +192,12 @@ class _HistoryScreenState extends State<HistoryScreen> with SingleTickerProvider
 
                 const SizedBox(width: 12),
 
-                const Text(
-                  'Draw History',
-                  style: TextStyle(color: Colors.white, fontSize: 24, fontWeight: FontWeight.bold),
+                const Expanded(
+                  child: Text(
+                    'Sample Draw History',
+                    style: TextStyle(color: Colors.white, fontSize: 24, fontWeight: FontWeight.bold),
+                  ),
                 ),
-
-                const Spacer(),
 
                 Stack(
                   clipBehavior: Clip.none,
@@ -517,14 +256,14 @@ class _HistoryScreenState extends State<HistoryScreen> with SingleTickerProvider
     return ValueListenableBuilder(
       valueListenable: Hive.box<DrawResult>('draws').listenable(),
       builder: (context, Box<DrawResult> box, _) {
-        final all = box.values.where((d) => d.status == 'completed').toList();
+        final all = _drawService.getCompleted();
         final filtered = _applyFilters(all);
         return filtered.isEmpty
             ? _buildEmptyState()
             : ListView.builder(
                 padding: const EdgeInsets.all(20),
                 itemCount: filtered.length,
-                itemBuilder: (context, index) => _buildPastDrawCard(_drawToMap(filtered[index])),
+                itemBuilder: (context, index) => _buildPastDrawCard(filtered[index]),
               );
       },
     );
@@ -534,7 +273,7 @@ class _HistoryScreenState extends State<HistoryScreen> with SingleTickerProvider
     return ValueListenableBuilder(
       valueListenable: Hive.box<DrawResult>('draws').listenable(),
       builder: (context, Box<DrawResult> box, _) {
-        final upcoming = _applyFilters(box.values.where((d) => d.status == 'upcoming' || d.status == 'today').toList());
+        final upcoming = _applyFilters(_drawService.getUpcoming());
         if (upcoming.isEmpty) return _buildEmptyState();
         return ListView.builder(
           padding: const EdgeInsets.all(20),
@@ -545,7 +284,8 @@ class _HistoryScreenState extends State<HistoryScreen> with SingleTickerProvider
     );
   }
 
-  Widget _buildPastDrawCard(Map<String, dynamic> draw) {
+  Widget _buildPastDrawCard(DrawResult result) {
+    final draw = _drawToMap(result);
     return Container(
       margin: const EdgeInsets.only(bottom: 16),
       decoration: BoxDecoration(
@@ -557,7 +297,7 @@ class _HistoryScreenState extends State<HistoryScreen> with SingleTickerProvider
         color: Colors.transparent,
         child: InkWell(
           borderRadius: BorderRadius.circular(20),
-          onTap: () => _showDrawDetails(draw),
+          onTap: () => _showDrawDetails(result),
           child: Padding(
             padding: const EdgeInsets.all(20),
             child: Column(
@@ -733,11 +473,11 @@ class _HistoryScreenState extends State<HistoryScreen> with SingleTickerProvider
                   child: Column(
                     children: [
                       Text(
-                        draw.status == 'today' ? '0' : '${_drawService.daysUntil(draw)}',
+                        _drawService.statusOf(draw) == DrawStatus.today ? '0' : '${_drawService.daysUntil(draw)}',
                         style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: Colors.white),
                       ),
                       Text(
-                        draw.status == 'today' ? 'Today!' : 'Days Left',
+                        _drawService.statusOf(draw) == DrawStatus.today ? 'Today!' : 'Days Left',
                         style: const TextStyle(fontSize: 11, color: Colors.white),
                       ),
                     ],
@@ -781,7 +521,7 @@ class _HistoryScreenState extends State<HistoryScreen> with SingleTickerProvider
             SizedBox(
               width: double.infinity,
               child: OutlinedButton.icon(
-                onPressed: () => _setReminder(_drawToMap(draw)),
+                onPressed: () => _setReminder(draw),
                 icon: const Icon(Icons.notifications_outlined, size: 16),
                 label: const Text('Set Reminder'),
                 style: OutlinedButton.styleFrom(
@@ -858,7 +598,8 @@ class _HistoryScreenState extends State<HistoryScreen> with SingleTickerProvider
     );
   }
 
-  void _showDrawDetails(Map<String, dynamic> draw) {
+  void _showDrawDetails(DrawResult result) {
+    final draw = _drawToMap(result);
     showModalBottomSheet(
       context: context,
       backgroundColor: Colors.transparent,
@@ -880,19 +621,21 @@ class _HistoryScreenState extends State<HistoryScreen> with SingleTickerProvider
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        draw['denomination'],
-                        style: const TextStyle(color: Colors.white, fontSize: 24, fontWeight: FontWeight.bold),
-                      ),
-                      const SizedBox(height: 4),
-                      Text(
-                        'Draw #${draw['drawNumber']} • ${draw['date']}',
-                        style: TextStyle(color: Colors.white.withOpacity(0.9), fontSize: 14),
-                      ),
-                    ],
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          draw['denomination'],
+                          style: const TextStyle(color: Colors.white, fontSize: 24, fontWeight: FontWeight.bold),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          'Draw #${draw['drawNumber']} • ${draw['date']}',
+                          style: TextStyle(color: Colors.white.withValues(alpha: 0.9), fontSize: 14),
+                        ),
+                      ],
+                    ),
                   ),
                   IconButton(
                     icon: const Icon(Icons.close, color: Colors.white),
@@ -939,7 +682,7 @@ class _HistoryScreenState extends State<HistoryScreen> with SingleTickerProvider
                       child: ElevatedButton.icon(
                         onPressed: () {
                           Navigator.pop(context);
-                          _downloadPDF(draw);
+                          _downloadPDF(result);
                         },
                         icon: const Icon(Icons.download_rounded),
                         label: const Text('Download Full List (PDF)'),

@@ -1,9 +1,19 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
+import 'package:prize_bond_checking_app/screens/bulk_check_screen.dart';
+import 'package:prize_bond_checking_app/services/android_bulk_import.dart';
+import 'package:prize_bond_checking_app/services/bond_checking_service.dart';
+import 'package:prize_bond_checking_app/services/draw_reminder_service.dart';
+import 'landing_screen.dart';
+import 'package:prize_bond_checking_app/services/account_credentials.dart';
 import 'package:prize_bond_checking_app/services/auth_service.dart';
 import 'package:prize_bond_checking_app/widgets/app_nav_screen.dart';
 
 class PinScreen extends StatefulWidget {
-  const PinScreen({super.key});
+  const PinScreen({super.key, required this.accountId});
+
+  final String accountId;
 
   @override
   State<PinScreen> createState() => _PinScreenState();
@@ -11,247 +21,103 @@ class PinScreen extends StatefulWidget {
 
 class _PinScreenState extends State<PinScreen> {
   String _enteredPin = '';
-  bool _hasError = false;
+  String? _error;
+  bool _verifying = false;
 
   void _onKey(String key) {
-    if (_enteredPin.length >= 4) return;
-
+    if (_verifying || _enteredPin.length >= 4) return;
     setState(() {
       _enteredPin += key;
-      _hasError = false;
+      _error = null;
     });
-
-    if (_enteredPin.length == 4) {
-      _verify();
-    }
+    if (_enteredPin.length == 4) unawaited(_verify(_enteredPin));
   }
 
   void _onDelete() {
-    if (_enteredPin.isNotEmpty) {
-      setState(() {
-        _enteredPin = _enteredPin.substring(0, _enteredPin.length - 1);
-      });
+    if (!_verifying && _enteredPin.isNotEmpty) {
+      setState(() => _enteredPin = _enteredPin.substring(0, _enteredPin.length - 1));
     }
   }
 
-  void _verify() {
-    Future.delayed(const Duration(milliseconds: 200), () async {
+  Future<void> _verify(String pin) async {
+    setState(() => _verifying = true);
+    final accountId = widget.accountId;
+    try {
+      final storage = await AuthService.unlock(accountId, pin);
       if (!mounted) return;
-
-      final correct = await AuthService.verifyPin(_enteredPin);
-
-      if (correct) {
-        Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => const MainNavigationScreen()));
-      } else {
-        setState(() {
-          _hasError = true;
-          _enteredPin = '';
-        });
+      if (storage == null) {
+        _resetEntry('Incorrect PIN. Please try again.');
+        return;
       }
+      final bulkDenomination = await AndroidBulkImport.instance.pendingDenomination(storage);
+      if (!mounted || !AuthService.canUseStorage(storage)) return;
+      final navigator = Navigator.of(context);
+      navigator.pushAndRemoveUntil(
+        MaterialPageRoute<void>(
+          builder: (_) =>
+              AuthService.canUseStorage(storage) ? const MainNavigationScreen() : PinScreen(accountId: accountId),
+        ),
+        (_) => false,
+      );
+      if (bulkDenomination != null) {
+        navigator.push(
+          MaterialPageRoute<void>(
+            builder: (_) => AuthService.canUseStorage(storage)
+                ? BulkCheckScreen(denomination: bulkDenomination, restorePendingImport: true)
+                : PinScreen(accountId: accountId),
+          ),
+        );
+      }
+      unawaited(_refreshAccount(storage));
+      unawaited(DrawReminderService().reconcile(storage));
+    } on CredentialException catch (error) {
+      if (mounted) _resetEntry(error.message);
+    } on AccountException catch (error) {
+      if (mounted) _resetEntry(error.message);
+    } catch (_) {
+      if (mounted) _resetEntry('Could not unlock this account. Please try again.');
+    }
+  }
+
+  void _resetEntry(String message) {
+    setState(() {
+      _verifying = false;
+      _enteredPin = '';
+      _error = message;
     });
   }
 
-  void _showForgotPinDialog() {
-    final emailController = TextEditingController();
+  Future<void> _refreshAccount(AccountStorage storage) async {
+    try {
+      await BondCheckingService().refreshAccount(storage);
+    } catch (error) {
+      debugPrint('Could not refresh account draws: $error');
+    }
+  }
 
-    showDialog(
+  void _showForgotPinDialog() {
+    showDialog<void>(
       context: context,
       builder: (context) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
         title: const Text('Forgot PIN?'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              'Enter your registered email address to verify your identity.',
-              style: TextStyle(fontSize: 13, color: Colors.grey[600]),
-            ),
-            const SizedBox(height: 16),
-            TextField(
-              controller: emailController,
-              keyboardType: TextInputType.emailAddress,
-              decoration: InputDecoration(
-                labelText: 'Registered Email',
-                prefixIcon: const Icon(Icons.email_outlined, color: Color(0xFF2D5BFF)),
-                border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-                enabledBorder: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(12),
-                  borderSide: const BorderSide(color: Color(0xFFE5E7EB)),
-                ),
-                focusedBorder: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(12),
-                  borderSide: const BorderSide(color: Color(0xFF2D5BFF), width: 2),
-                ),
-              ),
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
-          ElevatedButton(
-            onPressed: () async {
-              final enteredEmail = emailController.text.trim();
-
-              if (enteredEmail.isEmpty) return;
-
-              final profile = await AuthService.getUserProfile();
-
-              final storedEmail = profile['email'] ?? '';
-
-              if (!mounted) return;
-
-              Navigator.pop(context);
-
-              if (enteredEmail.toLowerCase() == storedEmail.toLowerCase()) {
-                _showResetPinDialog();
-              } else {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(
-                    content: const Text('Email does not match our records'),
-                    backgroundColor: Colors.red[400],
-                    behavior: SnackBarBehavior.floating,
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                  ),
-                );
-              }
-            },
-            style: ElevatedButton.styleFrom(
-              backgroundColor: const Color(0xFF2D5BFF),
-              foregroundColor: Colors.white,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-            ),
-            child: const Text('Verify'),
-          ),
-        ],
+        content: const Text('Ask the local administrator to reset your PIN in Admin Access.'),
+        actions: [TextButton(onPressed: () => Navigator.pop(context), child: const Text('Close'))],
       ),
     );
   }
 
-  void _showResetPinDialog() {
-    final newPinController = TextEditingController();
-    final confirmPinController = TextEditingController();
-
-    bool obscureNew = true;
-    bool obscureConfirm = true;
-
-    showDialog(
-      context: context,
-      builder: (context) => StatefulBuilder(
-        builder: (context, setDialogState) => AlertDialog(
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-          title: const Text('Reset PIN'),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              TextField(
-                controller: newPinController,
-                obscureText: obscureNew,
-                keyboardType: TextInputType.number,
-                maxLength: 4,
-                decoration: InputDecoration(
-                  labelText: 'New PIN (4 digits)',
-                  prefixIcon: const Icon(Icons.lock_outline, color: Color(0xFF2D5BFF)),
-                  suffixIcon: IconButton(
-                    icon: Icon(obscureNew ? Icons.visibility_outlined : Icons.visibility_off_outlined, color: Colors.grey[400]),
-                    onPressed: () {
-                      setDialogState(() {
-                        obscureNew = !obscureNew;
-                      });
-                    },
-                  ),
-                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-                  enabledBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(12),
-                    borderSide: const BorderSide(color: Color(0xFFE5E7EB)),
-                  ),
-                  focusedBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(12),
-                    borderSide: const BorderSide(color: Color(0xFF2D5BFF), width: 2),
-                  ),
-                  counterText: '',
-                ),
-              ),
-
-              const SizedBox(height: 14),
-
-              TextField(
-                controller: confirmPinController,
-                obscureText: obscureConfirm,
-                keyboardType: TextInputType.number,
-                maxLength: 4,
-                decoration: InputDecoration(
-                  labelText: 'Confirm PIN',
-                  prefixIcon: const Icon(Icons.lock_outline, color: Color(0xFF2D5BFF)),
-                  suffixIcon: IconButton(
-                    icon: Icon(
-                      obscureConfirm ? Icons.visibility_outlined : Icons.visibility_off_outlined,
-                      color: Colors.grey[400],
-                    ),
-                    onPressed: () {
-                      setDialogState(() {
-                        obscureConfirm = !obscureConfirm;
-                      });
-                    },
-                  ),
-                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-                  enabledBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(12),
-                    borderSide: const BorderSide(color: Color(0xFFE5E7EB)),
-                  ),
-                  focusedBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(12),
-                    borderSide: const BorderSide(color: Color(0xFF2D5BFF), width: 2),
-                  ),
-                  counterText: '',
-                ),
-              ),
-            ],
-          ),
-          actions: [
-            TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
-            ElevatedButton(
-              onPressed: () async {
-                final newPin = newPinController.text.trim();
-
-                final confirmPin = confirmPinController.text.trim();
-
-                if (newPin.length < 4) {
-                  ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('PIN must be 4 digits')));
-                  return;
-                }
-
-                if (newPin != confirmPin) {
-                  ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('PINs do not match')));
-                  return;
-                }
-
-                await AuthService.savePin(newPin);
-
-                if (!mounted) return;
-
-                Navigator.pop(context);
-
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(
-                    content: const Text('PIN has been reset successfully'),
-                    backgroundColor: const Color(0xFF10B981),
-                    behavior: SnackBarBehavior.floating,
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                  ),
-                );
-              },
-              style: ElevatedButton.styleFrom(
-                backgroundColor: const Color(0xFF2D5BFF),
-                foregroundColor: Colors.white,
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-              ),
-              child: const Text('Reset PIN'),
-            ),
-          ],
-        ),
-      ),
-    );
+  Future<void> _switchAccounts() async {
+    setState(() => _verifying = true);
+    try {
+      await AuthService.logout();
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('The previous account may still be selected after restarting the app.')));
+      }
+    }
+    if (mounted) Navigator.pushReplacement(context, MaterialPageRoute<void>(builder: (_) => const LandingScreen()));
   }
 
   @override
@@ -273,109 +139,113 @@ class _PinScreenState extends State<PinScreen> {
 
     final subtitleSize = width * 0.036;
 
-    return Scaffold(
-      backgroundColor: const Color(0xFFFAFBFC),
-      body: SafeArea(
-        child: SingleChildScrollView(
-          physics: const BouncingScrollPhysics(),
-          child: ConstrainedBox(
-            constraints: BoxConstraints(minHeight: height - MediaQuery.of(context).padding.top),
-            child: Padding(
-              padding: EdgeInsets.symmetric(horizontal: horizontalPadding, vertical: 20),
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  SizedBox(height: height * 0.02),
+    return PopScope(
+      canPop: !_verifying,
+      child: Scaffold(
+        backgroundColor: const Color(0xFFFAFBFC),
+        body: SafeArea(
+          child: SingleChildScrollView(
+            physics: const BouncingScrollPhysics(),
+            child: ConstrainedBox(
+              constraints: BoxConstraints(minHeight: height - MediaQuery.of(context).padding.top),
+              child: Padding(
+                padding: EdgeInsets.symmetric(horizontal: horizontalPadding, vertical: 20),
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    SizedBox(height: height * 0.02),
 
-                  Container(
-                    width: width * 0.22 > 90 ? 90 : width * 0.22,
-                    height: width * 0.22 > 90 ? 90 : width * 0.22,
-                    decoration: BoxDecoration(
-                      gradient: const LinearGradient(colors: [Color(0xFF2D5BFF), Color(0xFF8B5CF6)]),
-                      borderRadius: BorderRadius.circular(24),
-                      boxShadow: [
-                        BoxShadow(color: const Color(0xFF2D5BFF).withOpacity(0.3), blurRadius: 16, offset: const Offset(0, 6)),
-                      ],
+                    Container(
+                      width: width * 0.22 > 90 ? 90 : width * 0.22,
+                      height: width * 0.22 > 90 ? 90 : width * 0.22,
+                      decoration: BoxDecoration(
+                        gradient: const LinearGradient(colors: [Color(0xFF2D5BFF), Color(0xFF8B5CF6)]),
+                        borderRadius: BorderRadius.circular(24),
+                        boxShadow: [
+                          BoxShadow(color: const Color(0xFF2D5BFF).withOpacity(0.3), blurRadius: 16, offset: const Offset(0, 6)),
+                        ],
+                      ),
+                      child: Icon(Icons.account_balance_wallet, color: Colors.white, size: width * 0.1),
                     ),
-                    child: Icon(Icons.account_balance_wallet, color: Colors.white, size: width * 0.1),
-                  ),
 
-                  SizedBox(height: height * 0.04),
+                    SizedBox(height: height * 0.04),
 
-                  Text(
-                    'Enter Your PIN',
-                    textAlign: TextAlign.center,
-                    style: TextStyle(fontSize: titleSize, fontWeight: FontWeight.bold, color: const Color(0xFF1F2937)),
-                  ),
-
-                  const SizedBox(height: 8),
-
-                  Padding(
-                    padding: EdgeInsets.symmetric(horizontal: width * 0.05),
-                    child: Text(
-                      'Enter your 4-digit PIN to access the app',
+                    Text(
+                      'Enter Your PIN',
                       textAlign: TextAlign.center,
-                      style: TextStyle(fontSize: subtitleSize, color: Colors.grey[500]),
+                      style: TextStyle(fontSize: titleSize, fontWeight: FontWeight.bold, color: const Color(0xFF1F2937)),
                     ),
-                  ),
 
-                  SizedBox(height: height * 0.05),
+                    const SizedBox(height: 8),
 
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: List.generate(4, (i) {
-                      final filled = i < _enteredPin.length;
+                    Padding(
+                      padding: EdgeInsets.symmetric(horizontal: width * 0.05),
+                      child: Text(
+                        'Enter your 4-digit PIN to access the app',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(fontSize: subtitleSize, color: Colors.grey[500]),
+                      ),
+                    ),
 
-                      return AnimatedContainer(
-                        duration: const Duration(milliseconds: 200),
-                        margin: EdgeInsets.symmetric(horizontal: spacing * 0.5),
-                        width: pinDotSize,
-                        height: pinDotSize,
-                        decoration: BoxDecoration(
-                          shape: BoxShape.circle,
-                          color: _hasError
-                              ? Colors.red[400]
-                              : filled
-                              ? const Color(0xFF2D5BFF)
-                              : Colors.transparent,
-                          border: Border.all(
-                            color: _hasError
-                                ? Colors.red[400]!
+                    SizedBox(height: height * 0.05),
+
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: List.generate(4, (i) {
+                        final filled = i < _enteredPin.length;
+
+                        return AnimatedContainer(
+                          duration: const Duration(milliseconds: 200),
+                          margin: EdgeInsets.symmetric(horizontal: spacing * 0.5),
+                          width: pinDotSize,
+                          height: pinDotSize,
+                          decoration: BoxDecoration(
+                            shape: BoxShape.circle,
+                            color: _error != null
+                                ? Colors.red[400]
                                 : filled
                                 ? const Color(0xFF2D5BFF)
-                                : const Color(0xFFD1D5DB),
-                            width: 2,
+                                : Colors.transparent,
+                            border: Border.all(
+                              color: _error != null
+                                  ? Colors.red[400]!
+                                  : filled
+                                  ? const Color(0xFF2D5BFF)
+                                  : const Color(0xFFD1D5DB),
+                              width: 2,
+                            ),
                           ),
-                        ),
-                      );
-                    }),
-                  ),
-
-                  if (_hasError) ...[
-                    const SizedBox(height: 16),
-                    Text(
-                      'Incorrect PIN. Please try again.',
-                      textAlign: TextAlign.center,
-                      style: TextStyle(color: Colors.red[400], fontSize: width * 0.033, fontWeight: FontWeight.w500),
+                        );
+                      }),
                     ),
+
+                    if (_error != null) ...[
+                      const SizedBox(height: 16),
+                      Text(
+                        _error!,
+                        textAlign: TextAlign.center,
+                        style: TextStyle(color: Colors.red[400], fontSize: width * 0.033, fontWeight: FontWeight.w500),
+                      ),
+                    ],
+
+                    SizedBox(height: height * 0.05),
+
+                    _buildPad(keySize: keySize, spacing: spacing, fontSize: width * 0.06),
+
+                    SizedBox(height: height * 0.03),
+
+                    TextButton(
+                      onPressed: _verifying ? null : _showForgotPinDialog,
+                      child: Text(
+                        'Forgot PIN?',
+                        style: TextStyle(color: Colors.grey[500], fontSize: width * 0.036),
+                      ),
+                    ),
+
+                    TextButton(onPressed: _verifying ? null : _switchAccounts, child: const Text('Use another account')),
+                    SizedBox(height: height * 0.02),
                   ],
-
-                  SizedBox(height: height * 0.05),
-
-                  _buildPad(keySize: keySize, spacing: spacing, fontSize: width * 0.06),
-
-                  SizedBox(height: height * 0.03),
-
-                  TextButton(
-                    onPressed: _showForgotPinDialog,
-                    child: Text(
-                      'Forgot PIN?',
-                      style: TextStyle(color: Colors.grey[500], fontSize: width * 0.036),
-                    ),
-                  ),
-
-                  SizedBox(height: height * 0.02),
-                ],
+                ),
               ),
             ),
           ),

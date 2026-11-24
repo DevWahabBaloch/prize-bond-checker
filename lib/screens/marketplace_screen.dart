@@ -1,9 +1,8 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
-import 'package:hive_flutter/hive_flutter.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:prize_bond_checking_app/config/app_config.dart';
-import 'package:prize_bond_checking_app/models/listing_model.dart';
+import 'package:prize_bond_checking_app/services/auth_service.dart';
+import 'package:prize_bond_checking_app/services/marketplace_service.dart';
 
 class MarketplaceScreen extends StatefulWidget {
   const MarketplaceScreen({super.key});
@@ -13,7 +12,11 @@ class MarketplaceScreen extends StatefulWidget {
 }
 
 class _MarketplaceScreenState extends State<MarketplaceScreen> {
-  Box<Listing> get _box => Hive.box<Listing>('listings');
+  late final _marketplace = MarketplaceService();
+  late final _account = AuthService.requireStorage();
+  final _removing = <String>{};
+
+  bool get _active => mounted && AuthService.canUseStorage(_account);
 
   @override
   Widget build(BuildContext context) {
@@ -30,10 +33,10 @@ class _MarketplaceScreenState extends State<MarketplaceScreen> {
             : null,
         title: const Text('Marketplace', style: TextStyle(color: Color(0xFF1F2937))),
       ),
-      body: ValueListenableBuilder(
-        valueListenable: _box.listenable(),
-        builder: (context, Box<Listing> box, _) {
-          final listings = box.values.where((l) => l.isActive).toList().reversed.toList();
+      body: ListenableBuilder(
+        listenable: _marketplace.changes,
+        builder: (context, _) {
+          final listings = _marketplace.listings(_account);
           return listings.isEmpty
               ? _buildEmptyState()
               : ListView.builder(
@@ -68,13 +71,16 @@ class _MarketplaceScreenState extends State<MarketplaceScreen> {
             style: TextStyle(fontSize: 20, fontWeight: FontWeight.w600, color: Color(0xFF1F2937)),
           ),
           const SizedBox(height: 8),
-          const Text('Be the first to post a prize bond for sale', style: TextStyle(fontSize: 14, color: Color(0xFF6B7280))),
+          const Text(
+            'Be the first to post a prize bond for sale',
+            style: TextStyle(fontSize: 14, color: Color(0xFF6B7280)),
+          ),
         ],
       ),
     );
   }
 
-  Widget _buildListingCard(Listing listing) {
+  Widget _buildListingCard(MarketplaceListing listing) {
     final initials = listing.sellerName.isNotEmpty ? listing.sellerName[0].toUpperCase() : '?';
     final postedAgo = _timeAgo(listing.postedDate);
 
@@ -119,7 +125,12 @@ class _MarketplaceScreenState extends State<MarketplaceScreen> {
                         children: [
                           const Icon(Icons.location_on, size: 14, color: Color(0xFF6B7280)),
                           const SizedBox(width: 4),
-                          Text(listing.location, style: const TextStyle(fontSize: 12, color: Color(0xFF6B7280))),
+                          Flexible(
+                            child: Text(
+                              listing.location,
+                              style: const TextStyle(fontSize: 12, color: Color(0xFF6B7280)),
+                            ),
+                          ),
                           const SizedBox(width: 12),
                           Text(postedAgo, style: const TextStyle(fontSize: 12, color: Color(0xFF9CA3AF))),
                         ],
@@ -141,27 +152,41 @@ class _MarketplaceScreenState extends State<MarketplaceScreen> {
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          const Text('Denomination', style: TextStyle(fontSize: 12, color: Color(0xFF6B7280))),
-                          const SizedBox(height: 4),
-                          Text(
-                            listing.denomination,
-                            style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Color(0xFF1F2937)),
-                          ),
-                        ],
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Text('Denomination', style: TextStyle(fontSize: 12, color: Color(0xFF6B7280))),
+                            const SizedBox(height: 4),
+                            Text(
+                              listing.denomination,
+                              style: const TextStyle(
+                                fontSize: 16,
+                                fontWeight: FontWeight.bold,
+                                color: Color(0xFF1F2937),
+                              ),
+                            ),
+                          ],
+                        ),
                       ),
-                      Column(
-                        crossAxisAlignment: CrossAxisAlignment.end,
-                        children: [
-                          const Text('Quantity', style: TextStyle(fontSize: 12, color: Color(0xFF6B7280))),
-                          const SizedBox(height: 4),
-                          Text(
-                            '${listing.quantity} bonds',
-                            style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Color(0xFF1F2937)),
-                          ),
-                        ],
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.end,
+                          children: [
+                            const Text('Quantity', style: TextStyle(fontSize: 12, color: Color(0xFF6B7280))),
+                            const SizedBox(height: 4),
+                            Text(
+                              '${listing.quantity} bonds',
+                              textAlign: TextAlign.end,
+                              style: const TextStyle(
+                                fontSize: 16,
+                                fontWeight: FontWeight.bold,
+                                color: Color(0xFF1F2937),
+                              ),
+                            ),
+                          ],
+                        ),
                       ),
                     ],
                   ),
@@ -171,10 +196,15 @@ class _MarketplaceScreenState extends State<MarketplaceScreen> {
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      const Text('Asking Price', style: TextStyle(fontSize: 14, color: Color(0xFF6B7280))),
-                      Text(
-                        'Rs. ${listing.price.toStringAsFixed(0)}',
-                        style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Color(0xFF10B981)),
+                      const Expanded(
+                        child: Text('Asking Price', style: TextStyle(fontSize: 14, color: Color(0xFF6B7280))),
+                      ),
+                      Flexible(
+                        child: Text(
+                          'Rs. ${listing.price.toStringAsFixed(2)}',
+                          textAlign: TextAlign.end,
+                          style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Color(0xFF10B981)),
+                        ),
                       ),
                     ],
                   ),
@@ -197,15 +227,18 @@ class _MarketplaceScreenState extends State<MarketplaceScreen> {
                     ),
                   ),
                 ),
-                const SizedBox(width: 8),
-                IconButton(
-                  onPressed: () => _removeListing(listing),
-                  icon: const Icon(Icons.delete_outline, color: Color(0xFFEF4444)),
-                  style: IconButton.styleFrom(
-                    backgroundColor: const Color(0xFFFEF2F2),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                if (listing.canRemove) ...[
+                  const SizedBox(width: 8),
+                  IconButton(
+                    tooltip: 'Remove listing',
+                    onPressed: _removing.contains(listing.id) ? null : () => _removeListing(listing),
+                    icon: const Icon(Icons.delete_outline, color: Color(0xFFEF4444)),
+                    style: IconButton.styleFrom(
+                      backgroundColor: const Color(0xFFFEF2F2),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                    ),
                   ),
-                ),
+                ],
               ],
             ),
           ],
@@ -214,210 +247,103 @@ class _MarketplaceScreenState extends State<MarketplaceScreen> {
     );
   }
 
-  void _showContactDialog(Listing listing) {
-    showDialog(
+  Future<void> _showContactDialog(MarketplaceListing listing) async {
+    if (!_active) return;
+    final number = listing.sellerPhone;
+    final target = await showDialog<Uri>(
       context: context,
       builder: (context) => AlertDialog(
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
         title: const Text('Contact Seller'),
+        scrollable: true,
         content: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('You are about to contact ${listing.sellerName}.'),
+            Text(listing.sellerName),
             const SizedBox(height: 12),
-            if (listing.sellerPhone.isNotEmpty) ...[
-              Row(
-                children: [
-                  const Icon(Icons.phone, size: 16, color: Color(0xFF2D5BFF)),
-                  const SizedBox(width: 8),
-                  Text(listing.sellerPhone, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 15)),
-                ],
-              ),
-              const SizedBox(height: 16),
-              SizedBox(
-                width: double.infinity,
-                child: ElevatedButton.icon(
-                  onPressed: () async {
-                    final uri = Uri.parse('tel:${listing.sellerPhone}');
-                    if (await canLaunchUrl(uri)) {
-                      await launchUrl(uri);
-                    }
-                  },
-                  icon: const Icon(Icons.call_rounded),
-                  label: const Text('Call Seller'),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFF10B981),
-                    foregroundColor: Colors.white,
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                  ),
+            if (number.isEmpty)
+              const Text('The seller did not include a phone number.')
+            else ...[
+              Text('+92 $number'),
+              const SizedBox(height: 12),
+              ElevatedButton.icon(
+                onPressed: () => Navigator.pop(context, Uri(scheme: 'tel', path: '+92$number')),
+                icon: const Icon(Icons.call_rounded),
+                label: const Text('Call Seller'),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFF10B981),
+                  foregroundColor: Colors.white,
                 ),
               ),
-              const SizedBox(height: 8),
-              SizedBox(
-                width: double.infinity,
-                child: ElevatedButton.icon(
-                  onPressed: () async {
-                    final phone = listing.sellerPhone.replaceAll(RegExp(r'[^0-9]'), '');
-                    final uri = Uri.parse('https://wa.me/92$phone');
-                    if (await canLaunchUrl(uri)) {
-                      await launchUrl(uri, mode: LaunchMode.externalApplication);
-                    }
-                  },
-                  icon: const Icon(Icons.chat_rounded),
-                  label: const Text('WhatsApp'),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFF25D366),
-                    foregroundColor: Colors.white,
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                  ),
+              ElevatedButton.icon(
+                onPressed: () => Navigator.pop(context, Uri.https('wa.me', '/92$number')),
+                icon: const Icon(Icons.chat_rounded),
+                label: const Text('WhatsApp'),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFF25D366),
+                  foregroundColor: Colors.white,
                 ),
               ),
-            ] else
-              const Text('No contact number provided.', style: TextStyle(fontSize: 13, color: Color(0xFF6B7280))),
+            ],
           ],
         ),
         actions: [TextButton(onPressed: () => Navigator.pop(context), child: const Text('Close'))],
       ),
     );
+    if (target == null || !_active) return;
+    var launched = false;
+    try {
+      launched = await launchUrl(target, mode: LaunchMode.externalApplication);
+    } catch (_) {
+      // The device can decline the request or have no matching app.
+    }
+    if (!launched) _showMessage('Could not open the contact app on this device.');
   }
 
-  void _removeListing(Listing listing) {
-    showDialog(
+  Future<void> _removeListing(MarketplaceListing listing) async {
+    if (!_active || _removing.contains(listing.id)) return;
+    final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
         title: const Text('Remove Listing'),
         content: const Text('Remove this listing from the marketplace?'),
         actions: [
           TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
           ElevatedButton(
-            onPressed: () {
-              listing.delete();
-              Navigator.pop(context);
-            },
+            onPressed: () => Navigator.pop(context, true),
             style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFFEF4444)),
             child: const Text('Remove', style: TextStyle(color: Colors.white)),
           ),
         ],
       ),
     );
+    if (confirmed != true || !_active || _removing.contains(listing.id)) return;
+    setState(() => _removing.add(listing.id));
+    try {
+      await _marketplace.remove(_account, listing.id);
+      _showMessage('Listing removed.');
+    } on MarketplaceException catch (error) {
+      _showMessage(error.message);
+    } catch (_) {
+      _showMessage('Could not remove the listing. Please try again.');
+    } finally {
+      if (mounted) setState(() => _removing.remove(listing.id));
+    }
   }
 
-  void _showPostListingDialog() {
-    final quantityController = TextEditingController();
-    final priceController = TextEditingController();
-    final nameController = TextEditingController();
-    final phoneController = TextEditingController();
-    final locationController = TextEditingController();
-    String selectedDenomination = AppConfig.defaultDenomination;
-
-    showDialog(
+  Future<void> _showPostListingDialog() async {
+    if (!_active) return;
+    final posted = await showDialog<bool>(
       context: context,
-      builder: (context) => StatefulBuilder(
-        builder: (context, setDialogState) => AlertDialog(
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-          title: const Text('Post New Listing'),
-          content: SingleChildScrollView(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                TextField(
-                  controller: nameController,
-                  decoration: InputDecoration(
-                    labelText: 'Your Name',
-                    prefixIcon: const Icon(Icons.person_outline),
-                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-                  ),
-                ),
-                const SizedBox(height: 12),
-                TextField(
-                  controller: phoneController,
-                  keyboardType: TextInputType.phone,
-                  maxLength: 10,
-                  inputFormatters: [FilteringTextInputFormatter.digitsOnly, LengthLimitingTextInputFormatter(10)],
-                  decoration: InputDecoration(
-                    labelText: 'Phone Number',
-                    prefixIcon: const Icon(Icons.phone_outlined),
-                    prefixText: '+92 ',
-                    counterText: '',
-                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-                  ),
-                ),
-                const SizedBox(height: 12),
-                TextField(
-                  controller: locationController,
-                  decoration: InputDecoration(
-                    labelText: 'City / Location',
-                    prefixIcon: const Icon(Icons.location_on_outlined),
-                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-                  ),
-                ),
-                const SizedBox(height: 12),
-                DropdownButtonFormField<String>(
-                  value: selectedDenomination,
-                  decoration: InputDecoration(
-                    labelText: 'Denomination',
-                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-                  ),
-                  items: AppConfig.denominations.map((d) => DropdownMenuItem(value: d, child: Text(d))).toList(),
-                  onChanged: (val) => setDialogState(() => selectedDenomination = val ?? selectedDenomination),
-                ),
-                const SizedBox(height: 12),
-                TextField(
-                  controller: quantityController,
-                  decoration: InputDecoration(
-                    labelText: 'Quantity',
-                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-                  ),
-                  keyboardType: TextInputType.number,
-                ),
-                const SizedBox(height: 12),
-                TextField(
-                  controller: priceController,
-                  decoration: InputDecoration(
-                    labelText: 'Asking Price per bond (Rs.)',
-                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-                  ),
-                  keyboardType: TextInputType.number,
-                ),
-              ],
-            ),
-          ),
-          actions: [
-            TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
-            ElevatedButton(
-              onPressed: () {
-                if (nameController.text.isNotEmpty && quantityController.text.isNotEmpty && priceController.text.isNotEmpty) {
-                  final listing = Listing()
-                    ..id = DateTime.now().millisecondsSinceEpoch.toString()
-                    ..sellerName = nameController.text
-                    ..sellerPhone = phoneController.text
-                    ..denomination = selectedDenomination
-                    ..quantity = int.tryParse(quantityController.text) ?? 1
-                    ..price = double.tryParse(priceController.text) ?? 0.0
-                    ..location = locationController.text.isNotEmpty ? locationController.text : 'Pakistan'
-                    ..postedDate = DateTime.now()
-                    ..isActive = true;
-                  _box.add(listing);
-                  Navigator.pop(context);
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('Listing posted successfully!'), backgroundColor: Color(0xFF10B981)),
-                  );
-                } else {
-                  ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Please fill all required fields')));
-                }
-              },
-              style: ElevatedButton.styleFrom(
-                backgroundColor: const Color(0xFF2D5BFF),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-              ),
-              child: const Text('Post Listing', style: TextStyle(color: Colors.white)),
-            ),
-          ],
-        ),
-      ),
+      barrierDismissible: false,
+      builder: (_) => _PostListingDialog(marketplace: _marketplace, account: _account),
     );
+    if (posted == true) _showMessage('Listing posted successfully.');
+  }
+
+  void _showMessage(String message) {
+    if (_active) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
   }
 
   String _timeAgo(DateTime dt) {
@@ -427,5 +353,145 @@ class _MarketplaceScreenState extends State<MarketplaceScreen> {
     if (diff.inHours < 24) return '${diff.inHours}h ago';
     if (diff.inDays == 1) return 'Yesterday';
     return '${diff.inDays}d ago';
+  }
+}
+
+class _PostListingDialog extends StatefulWidget {
+  const _PostListingDialog({required this.marketplace, required this.account});
+
+  final MarketplaceService marketplace;
+  final AccountStorage account;
+
+  @override
+  State<_PostListingDialog> createState() => _PostListingDialogState();
+}
+
+class _PostListingDialogState extends State<_PostListingDialog> {
+  final _name = TextEditingController();
+  final _phone = TextEditingController();
+  final _location = TextEditingController();
+  final _quantity = TextEditingController();
+  final _price = TextEditingController();
+  String _denomination = AppConfig.defaultDenomination;
+  bool _posting = false;
+  String? _error;
+
+  @override
+  void dispose() {
+    _name.dispose();
+    _phone.dispose();
+    _location.dispose();
+    _quantity.dispose();
+    _price.dispose();
+    super.dispose();
+  }
+
+  Future<void> _post() async {
+    if (_posting || !AuthService.canUseStorage(widget.account)) return;
+    setState(() {
+      _posting = true;
+      _error = null;
+    });
+    try {
+      await widget.marketplace.post(
+        widget.account,
+        name: _name.text,
+        phone: _phone.text,
+        location: _location.text,
+        denomination: _denomination,
+        quantity: _quantity.text,
+        price: _price.text,
+      );
+      if (mounted && AuthService.canUseStorage(widget.account)) Navigator.pop(context, true);
+    } on MarketplaceException catch (error) {
+      _postFailed(error.message);
+    } catch (_) {
+      _postFailed('Could not post the listing. Your draft is still here. Please try again.');
+    }
+  }
+
+  void _postFailed(String message) {
+    if (!mounted || !AuthService.canUseStorage(widget.account)) return;
+    setState(() {
+      _posting = false;
+      _error = message;
+    });
+  }
+
+  InputDecoration _field(String label, [IconData? icon]) => InputDecoration(
+    labelText: label,
+    prefixIcon: icon == null ? null : Icon(icon),
+    border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+  );
+
+  @override
+  Widget build(BuildContext context) {
+    return PopScope(
+      canPop: !_posting,
+      child: AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: const Text('Post New Listing'),
+        scrollable: true,
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text('Signed-in accounts on this device can see this listing and any contact details you add.'),
+            const SizedBox(height: 12),
+            TextField(controller: _name, enabled: !_posting, decoration: _field('Your Name', Icons.person_outline)),
+            const SizedBox(height: 12),
+            TextField(
+              controller: _phone,
+              enabled: !_posting,
+              keyboardType: TextInputType.phone,
+              decoration: _field('Phone Number (optional)', Icons.phone_outlined),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: _location,
+              enabled: !_posting,
+              decoration: _field('City / Location', Icons.location_on_outlined),
+            ),
+            const SizedBox(height: 12),
+            DropdownButtonFormField<String>(
+              initialValue: _denomination,
+              isExpanded: true,
+              decoration: _field('Denomination'),
+              items: AppConfig.denominations
+                  .map((value) => DropdownMenuItem(value: value, child: Text(value)))
+                  .toList(),
+              onChanged: _posting ? null : (value) => _denomination = value ?? _denomination,
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: _quantity,
+              enabled: !_posting,
+              keyboardType: TextInputType.number,
+              decoration: _field('Quantity'),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: _price,
+              enabled: !_posting,
+              keyboardType: const TextInputType.numberWithOptions(decimal: true),
+              decoration: _field('Asking Price per bond (Rs.)'),
+            ),
+          ],
+        ),
+        actions: [
+          if (_error case final error?)
+            Semantics(
+              liveRegion: true,
+              child: Text(error, style: TextStyle(color: Theme.of(context).colorScheme.error)),
+            ),
+          TextButton(onPressed: _posting ? null : () => Navigator.pop(context), child: const Text('Cancel')),
+          ElevatedButton(
+            onPressed: _posting ? null : _post,
+            style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF2D5BFF)),
+            child: Text(_posting ? 'Posting…' : 'Post Listing', style: const TextStyle(color: Colors.white)),
+          ),
+        ],
+      ),
+    );
   }
 }

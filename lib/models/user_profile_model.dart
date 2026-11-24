@@ -37,6 +37,33 @@ class UserProfile extends HiveObject {
   @HiveField(10)
   late DateTime registeredAt;
 
+  @HiveField(11, defaultValue: false)
+  bool isRejected = false;
+
+  UserProfile copyWith({
+    String? id,
+    String? firstName,
+    String? lastName,
+    String? mobile,
+    String? email,
+    String? pinHash,
+    String? city,
+    bool? isApproved,
+    bool? isRejected,
+  }) => UserProfile()
+    ..id = id ?? this.id
+    ..firstName = firstName ?? this.firstName
+    ..lastName = lastName ?? this.lastName
+    ..mobile = mobile ?? this.mobile
+    ..email = email ?? this.email
+    ..pinHash = pinHash ?? this.pinHash
+    ..address = address
+    ..city = city ?? this.city
+    ..role = role
+    ..isApproved = isApproved ?? this.isApproved
+    ..registeredAt = registeredAt
+    ..isRejected = isRejected ?? this.isRejected;
+
   String get fullName {
     final joined = '$firstName $lastName'.trim();
     return joined.isEmpty ? 'User' : joined;

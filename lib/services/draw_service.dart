@@ -1,253 +1,209 @@
-import 'dart:convert';
 import 'package:flutter/services.dart';
 import 'package:hive/hive.dart';
-import 'package:intl/intl.dart';
-import 'package:shared_preferences/shared_preferences.dart';
+
+import '../config/app_config.dart';
+import '../models/bond_check_result.dart';
 import '../models/draw_result_model.dart';
-import '../models/bond_model.dart';
-import '../models/prize_entry_model.dart';
-import 'notification_service.dart';
+import '../widgets/bond_number_extractor.dart';
+import 'draw_catalog.dart';
+
+enum DrawStatus { completed, today, upcoming }
+
+class DrawImportReport {
+  const DrawImportReport({required this.version, required this.count, required this.inserted, required this.repaired});
+
+  final int version;
+  final int count;
+  final int inserted;
+  final int repaired;
+}
+
+class DrawImportFailure implements Exception {
+  const DrawImportFailure(this.message);
+
+  final String message;
+
+  @override
+  String toString() => 'Draw import failed. $message';
+}
 
 class DrawService {
-  static const _boxName = 'draws';
+  DrawService({DrawCatalog? catalog, DateTime Function()? clock}) : _catalogOverride = catalog, _clock = clock ?? DateTime.now;
 
+  static const _boxName = 'draws';
+  static const _metadataBox = 'draw_import';
+  static const _seedKey = 'bundled_seed';
+  static DrawCatalog? _bundledCatalog;
+  static Future<void> _imports = Future.value();
+
+  final DrawCatalog? _catalogOverride;
+  final DateTime Function() _clock;
+
+  DrawCatalog? get _catalog => _catalogOverride ?? _bundledCatalog;
   Box<DrawResult> get _box => Hive.box<DrawResult>(_boxName);
 
-  List<PrizeEntry> _parsePrizeWinners(Map<String, dynamic> map) {
-    final raw = map['prizeWinners'];
-    if (raw is List) {
-      return raw
-          .whereType<Map>()
-          .map(
-            (entry) => PrizeEntry()
-              ..position = (entry['position'] ?? '').toString()
-              ..number = (entry['number'] ?? '').toString()
-              ..amount = (entry['amount'] ?? '').toString(),
-          )
-          .where((entry) => entry.number.isNotEmpty)
-          .toList();
-    }
-
-    final fallback = <PrizeEntry>[
-      PrizeEntry()
-        ..position = '1st Prize'
-        ..number = (map['firstPrize'] ?? '').toString()
-        ..amount = (map['firstPrizeAmount'] ?? '').toString(),
-    ];
-
-    final second = map['secondPrize']?.toString();
-    if (second != null && second.isNotEmpty) {
-      fallback.add(
-        PrizeEntry()
-          ..position = '2nd Prize'
-          ..number = second
-          ..amount = (map['secondPrizeAmount'] ?? '').toString(),
-      );
-    }
-
-    final third = map['thirdPrize']?.toString();
-    if (third != null && third.isNotEmpty) {
-      fallback.add(
-        PrizeEntry()
-          ..position = '3rd Prize'
-          ..number = third
-          ..amount = (map['thirdPrizeAmount'] ?? '').toString(),
-      );
-    }
-
-    return fallback;
-  }
-
-  Future<void> seedIfEmpty() async {
-    if (_box.isNotEmpty) return;
-    final jsonStr = await rootBundle.loadString('assets/data/draws_seed.json');
-    final List<dynamic> list = json.decode(jsonStr);
-    for (final rawMap in list) {
-      final map = Map<String, dynamic>.from(rawMap as Map);
-      final prizeWinners = _parsePrizeWinners(map);
-      await _box.add(
-        DrawResult()
-          ..drawNumber = map['drawNumber'] as String
-          ..denomination = map['denomination'] as String
-          ..drawDate = map['drawDate'] as String
-          ..city = map['city'] as String
-          ..status = map['status'] as String
-          ..daysLeft = map['daysLeft'] as int
-          ..firstPrize = map['firstPrize'] as String
-          ..firstPrizeAmount = map['firstPrizeAmount'] as String
-          ..secondPrize = map['secondPrize'] as String?
-          ..secondPrizeAmount = map['secondPrizeAmount'] as String?
-          ..thirdPrize = map['thirdPrize'] as String?
-          ..thirdPrizeAmount = map['thirdPrizeAmount'] as String?
-          ..totalPrizes = prizeWinners.length.toString()
-          ..seededAt = DateTime.now()
-          ..prizeWinners = prizeWinners,
-      );
-    }
-
-    final prefs = await SharedPreferences.getInstance();
-    final alreadyNotified = prefs.getBool('draw_notif_seeded') ?? false;
-    if (!alreadyNotified) {
-      final upcomingDraws = getUpcoming();
-      for (final d in upcomingDraws) {
-        await NotificationService().showNewDrawNotification(denomination: d.denomination, date: d.drawDate, city: d.city);
-      }
-
-      final completedDraws = getCompleted();
-      for (final d in completedDraws) {
-        await NotificationService().showResultsAvailableNotification(
-          denomination: d.denomination,
-          date: d.drawDate,
-          city: d.city,
-        );
-      }
-      await prefs.setBool('draw_notif_seeded', true);
-    }
-  }
-
-  Future<void> autoCheckAllBonds() async {
-    if (!Hive.isBoxOpen('bonds')) return;
-    final bondsBox = Hive.box<Bond>('bonds');
-    if (bondsBox.isEmpty) return;
-    final notifService = NotificationService();
-    for (final bond in bondsBox.values) {
-      final result = checkBond(bond.number, bond.denomination);
-      final alreadyNotified = result != null && bond.status == 'Won' && bond.lastResult == result.drawNumber;
-      bond.lastChecked = DateTime.now();
-      bond.status = result != null ? 'Won' : 'No Win';
-      bond.lastResult = result?.drawNumber;
-      await bond.save();
-      if (result != null && !alreadyNotified) {
-        await notifService.showWinNotification(bondNumber: bond.number, denomination: bond.denomination, city: result.city);
-      }
-    }
-  }
-
-  Future<void> updateSavedBondAfterCheck({
-    required String number,
-    required String denomination,
-    required DrawResult? result,
-  }) async {
-    if (!Hive.isBoxOpen('bonds')) return;
-    final bondsBox = Hive.box<Bond>('bonds');
-    final matches = bondsBox.values.where((bond) => bond.number == number && bond.denomination == denomination);
-    for (final bond in matches) {
-      bond.lastChecked = DateTime.now();
-      bond.status = result != null ? 'Won' : 'No Win';
-      bond.lastResult = result?.drawNumber;
-      await bond.save();
-    }
-  }
-
-  int _daysDelta(DrawResult draw) {
+  Future<DrawImportReport> importBundledSeed() async {
+    final DrawCatalog catalog;
     try {
-      final parsed = DateFormat('MMMM d, yyyy').parse(draw.drawDate);
-      final drawDay = DateTime(parsed.year, parsed.month, parsed.day);
-      final now = DateTime.now();
-      final today = DateTime(now.year, now.month, now.day);
-      return drawDay.difference(today).inDays;
+      catalog = DrawCatalog.parse(
+        await rootBundle.loadString(DrawCatalog.asset),
+        version: DrawCatalog.bundledVersion,
+        expectedCount: DrawCatalog.bundledCount,
+        expectedDigest: DrawCatalog.bundledDigest,
+      );
+    } on FormatException catch (error) {
+      throw DrawImportFailure(error.message);
     } catch (_) {
-      return draw.daysLeft;
+      throw const DrawImportFailure('Could not read the bundled simulated draw asset.');
     }
+    return importCatalog(catalog);
+  }
+
+  Future<DrawImportReport> importCatalog(DrawCatalog catalog) {
+    final next = _imports.then((_) => _reconcile(catalog));
+    _imports = next.then<void>((_) {}, onError: (Object _, StackTrace _) {});
+    return next;
+  }
+
+  Future<DrawImportReport> _reconcile(DrawCatalog catalog) async {
+    try {
+      final metadata = await Hive.openBox<String>(_metadataBox);
+      final previous = metadata.get(_seedKey)?.split(':');
+      final previousVersion = previous?.length == 3 ? int.tryParse(previous![1]) : null;
+      if (previousVersion != null &&
+          (previousVersion > catalog.version || (previousVersion == catalog.version && previous![2] != catalog.digest))) {
+        throw const DrawImportFailure('The stored seed version conflicts with the bundled catalog.');
+      }
+
+      _bundledCatalog = catalog;
+      final byId = _storedById();
+      final changes = <Object, DrawResult>{};
+      var inserted = 0;
+      var repaired = 0;
+      for (final expected in catalog.draws) {
+        final existing = byId[expected.id] ?? [];
+        if (existing.any((entry) => expected.matches(entry.value))) continue;
+        if (existing.any((entry) => CatalogDraw.hasCompleteResults(entry.value))) {
+          throw DrawImportFailure('An existing complete draw conflicts with the approved catalog (${expected.id}).');
+        }
+        final key = existing.isEmpty ? expected.id : existing.first.key;
+        if (existing.isEmpty && _box.containsKey(key)) {
+          throw DrawImportFailure('An unrelated record occupies the catalog key ${expected.id}.');
+        }
+        changes[key] = expected.newRecord(existing.isEmpty ? _clock() : existing.first.value.seededAt);
+        if (existing.isEmpty) {
+          inserted++;
+        } else {
+          repaired++;
+        }
+      }
+
+      final stamp = '${catalog.version}:${catalog.digest}';
+      if (changes.isNotEmpty || metadata.get(_seedKey) != 'complete:$stamp') {
+        await metadata.put(_seedKey, 'importing:$stamp');
+        await metadata.flush();
+        if (changes.isNotEmpty) await _box.putAll(changes);
+        await _box.flush();
+        if (_availableDraws(catalog).length != catalog.draws.length) {
+          throw const DrawImportFailure('The stored catalog is incomplete after import.');
+        }
+        await metadata.put(_seedKey, 'complete:$stamp');
+        await metadata.flush();
+      }
+
+      return DrawImportReport(version: catalog.version, count: catalog.draws.length, inserted: inserted, repaired: repaired);
+    } on DrawImportFailure {
+      rethrow;
+    } catch (error) {
+      throw DrawImportFailure('Could not save and verify the simulated catalog. $error');
+    }
+  }
+
+  Map<String, List<MapEntry<Object, DrawResult>>> _storedById() {
+    final byId = <String, List<MapEntry<Object, DrawResult>>>{};
+    if (!Hive.isBoxOpen(_boxName)) return byId;
+    for (final entry in _box.toMap().entries) {
+      final id = CatalogDraw.identityOf(entry.value);
+      if (id != null) {
+        (byId[id] ??= []).add(MapEntry(entry.key as Object, entry.value));
+      }
+    }
+    return byId;
+  }
+
+  Map<String, DrawResult> _availableDraws(DrawCatalog catalog) {
+    final byId = _storedById();
+    return {
+      for (final expected in catalog.draws)
+        if ((byId[expected.id] ?? []).map((entry) => entry.value).where(expected.matches).firstOrNull case final DrawResult draw)
+          expected.id: draw,
+    };
+  }
+
+  DrawStatus statusOf(DrawResult draw) => _statusOn(CatalogDraw.parseDay(draw.drawDate), drawCalendarDay(_clock()));
+
+  DrawStatus _statusOn(DateTime day, DateTime today) {
+    if (day.isBefore(today)) return DrawStatus.completed;
+    return day == today ? DrawStatus.today : DrawStatus.upcoming;
   }
 
   int daysUntil(DrawResult draw) {
-    final days = _daysDelta(draw);
+    final days = CatalogDraw.parseDay(draw.drawDate).difference(drawCalendarDay(_clock())).inDays;
     return days < 0 ? 0 : days;
   }
 
-  Future<List<DrawResult>> recalculateDrawStatuses() async {
-    final justCompleted = <DrawResult>[];
+  List<DrawResult> getAll() {
+    final catalog = _catalog;
+    return catalog == null ? [] : _availableDraws(catalog).values.toList();
+  }
 
-    for (final draw in _box.values) {
-      if (draw.status == 'completed') continue;
+  List<DrawResult> getCompleted() => getAll().where((draw) => statusOf(draw) == DrawStatus.completed).toList();
 
-      final remainingDays = _daysDelta(draw);
-      final nextStatus = remainingDays < 0
-          ? 'completed'
-          : remainingDays == 0
-          ? 'today'
-          : 'upcoming';
+  List<DrawResult> getUpcoming() => getAll().where((draw) => statusOf(draw) != DrawStatus.completed).toList();
 
-      if (draw.status == nextStatus) continue;
+  BondCheckResult checkBond(String number, String denomination, {DrawPeriod? period}) {
+    if (!BondNumberExtractor.isValidBondNumber(number)) throw ArgumentError('A bond number must contain exactly six digits.');
+    if (!AppConfig.denominations.contains(denomination)) throw ArgumentError('Unsupported denomination.');
 
-      draw.status = nextStatus;
-      await draw.save();
-
-      if (nextStatus == 'completed') {
-        justCompleted.add(draw);
+    final catalog = _catalog;
+    final today = drawCalendarDay(_clock());
+    final expected =
+        catalog?.draws.where((draw) {
+          if (draw.denomination != denomination) return false;
+          // A period filters sample records and includes pending draws among the expected results.
+          return period == null ? draw.day.isBefore(today) : period.includes(draw.day);
+        }).toList() ??
+        [];
+    final available = catalog == null ? <String, DrawResult>{} : _availableDraws(catalog);
+    final checked = <String>[];
+    BondWin? win;
+    for (final draw in expected.reversed) {
+      final stored = available[draw.id];
+      if (stored == null || !draw.day.isBefore(today)) continue;
+      checked.add(draw.id);
+      final prize = draw.prizeFor(number);
+      if (prize != null && win == null) {
+        win = BondWin(
+          drawId: draw.id,
+          drawNumber: stored.drawNumber,
+          drawDate: stored.drawDate,
+          city: stored.city,
+          position: prize.position,
+          amount: prize.amount,
+        );
       }
     }
 
-    for (final draw in justCompleted) {
-      await NotificationService().showResultsAvailableNotification(
-        denomination: draw.denomination,
-        date: draw.drawDate,
-        city: draw.city,
-      );
-    }
-
-    if (justCompleted.isNotEmpty) {
-      await autoCheckAllBonds();
-    }
-
-    return justCompleted;
-  }
-
-  Future<void> markDrawCompleted(String drawNumber) async {
-    try {
-      final draw = _box.values.firstWhere((d) => d.drawNumber == drawNumber);
-      if (draw.status == 'completed') return;
-      draw.status = 'completed';
-      await draw.save();
-      await NotificationService().showResultsAvailableNotification(
-        denomination: draw.denomination,
-        date: draw.drawDate,
-        city: draw.city,
-      );
-      await autoCheckAllBonds();
-    } catch (_) {}
-  }
-
-  List<DrawResult> getAll() => _box.values.toList();
-
-  List<DrawResult> getCompleted() => _box.values.where((d) => d.status == 'completed').toList();
-
-  List<DrawResult> getUpcoming() => _box.values.where((d) => d.status == 'upcoming' || d.status == 'today').toList();
-
-  DrawResult? checkBond(String number, String denomination) {
-    for (final draw in getCompleted()) {
-      if (draw.denomination != denomination) continue;
-      if (draw.prizeWinners.any((prize) => prize.number == number)) return draw;
-      if (draw.firstPrize == number) return draw;
-      if (draw.secondPrize == number) return draw;
-      if (draw.thirdPrize == number) return draw;
-    }
-    return null;
-  }
-
-  PrizeEntry? _matchingPrize(DrawResult draw, String number) {
-    for (final prize in draw.prizeWinners) {
-      if (prize.number == number) return prize;
-    }
-    return null;
-  }
-
-  String? getPrizePosition(DrawResult draw, String number) {
-    final prize = _matchingPrize(draw, number);
-    if (prize != null) return prize.position;
-    if (draw.firstPrize == number) return '1st Prize';
-    if (draw.secondPrize == number) return '2nd Prize';
-    if (draw.thirdPrize == number) return '3rd Prize';
-    return null;
-  }
-
-  String? getPrizeAmount(DrawResult draw, String number) {
-    final prize = _matchingPrize(draw, number);
-    if (prize != null) return prize.amount;
-    if (draw.firstPrize == number) return draw.firstPrizeAmount;
-    if (draw.secondPrize == number) return draw.secondPrizeAmount;
-    if (draw.thirdPrize == number) return draw.thirdPrizeAmount;
-    return null;
+    return BondCheckResult(
+      number: number,
+      denomination: denomination,
+      win: win,
+      coverage: DrawCoverage(
+        catalogVersion: catalog?.version,
+        period: period,
+        expectedDrawIds: expected.map((draw) => draw.id),
+        checkedDrawIds: checked,
+      ),
+    );
   }
 }

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:prize_bond_checking_app/services/auth_service.dart';
 import 'package:prize_bond_checking_app/services/notification_service.dart';
 
 class NotificationsScreen extends StatefulWidget {
@@ -9,6 +10,8 @@ class NotificationsScreen extends StatefulWidget {
 }
 
 class _NotificationsScreenState extends State<NotificationsScreen> with SingleTickerProviderStateMixin {
+  late final _storage = AuthService.requireStorage();
+
   late TabController _tabController;
   final NotificationService _service = NotificationService();
 
@@ -25,12 +28,13 @@ class _NotificationsScreenState extends State<NotificationsScreen> with SingleTi
   }
 
   List<AppNotification> _filtered(NotificationType? type) {
-    if (type == null) return _service.notifications.toList();
-    return _service.notifications.where((n) => n.type == type).toList();
+    if (type == null) return _service.notifications(_storage).toList();
+    return _service.notifications(_storage).where((n) => n.type == type).toList();
   }
 
-  void _markAllRead() {
-    setState(() => _service.markAllAsRead());
+  Future<void> _markAllRead() async {
+    await _service.markAllAsRead(_storage);
+    if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(
         content: Text('All notifications marked as read'),
@@ -51,9 +55,9 @@ class _NotificationsScreenState extends State<NotificationsScreen> with SingleTi
           TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
           ElevatedButton(
             style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFFEF4444)),
-            onPressed: () {
-              setState(() => _service.clearAll());
+            onPressed: () async {
               Navigator.pop(context);
+              await _service.clearAll(_storage);
             },
             child: const Text('Clear All', style: TextStyle(color: Colors.white)),
           ),
@@ -64,29 +68,32 @@ class _NotificationsScreenState extends State<NotificationsScreen> with SingleTi
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: const Color(0xFFFAFBFC),
-      body: Column(
-        children: [
-          _buildHeader(),
-          _buildTabBar(),
-          Expanded(
-            child: TabBarView(
-              controller: _tabController,
-              children: [
-                _buildList(_filtered(null)),
-                _buildList(_filtered(NotificationType.win)),
-                _buildList(_filtered(NotificationType.newDraw)..addAll(_filtered(NotificationType.resultsAvailable))),
-              ],
+    return ValueListenableBuilder(
+      valueListenable: _storage.notifications,
+      builder: (_, _, _) => Scaffold(
+        backgroundColor: const Color(0xFFFAFBFC),
+        body: Column(
+          children: [
+            _buildHeader(),
+            _buildTabBar(),
+            Expanded(
+              child: TabBarView(
+                controller: _tabController,
+                children: [
+                  _buildList(_filtered(null)),
+                  _buildList(_filtered(NotificationType.win)),
+                  _buildList(_filtered(NotificationType.newDraw)..addAll(_filtered(NotificationType.resultsAvailable))),
+                ],
+              ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
 
   Widget _buildHeader() {
-    final unread = _service.unreadCount;
+    final unread = _service.unreadCount(_storage);
     return Container(
       decoration: const BoxDecoration(
         gradient: LinearGradient(
@@ -181,7 +188,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> with SingleTi
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
                 const Text('All'),
-                if (_service.unreadCount > 0) ...[const SizedBox(width: 6), _badge(_service.unreadCount)],
+                if (_service.unreadCount(_storage) > 0) ...[const SizedBox(width: 6), _badge(_service.unreadCount(_storage))],
               ],
             ),
           ),
@@ -238,8 +245,8 @@ class _NotificationsScreenState extends State<NotificationsScreen> with SingleTi
         final n = items[index];
         return _NotificationCard(
           notification: n,
-          onTap: () => setState(() => _service.markAsRead(n.id)),
-          onDismiss: () => setState(() => _service.deleteNotification(n.id)),
+          onTap: () => _service.markAsRead(_storage, n.id),
+          onDismiss: () => _service.deleteNotification(_storage, n.id),
         );
       },
     );

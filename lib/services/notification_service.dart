@@ -1,9 +1,16 @@
+import 'dart:convert';
+
+import 'package:crypto/crypto.dart';
 import 'package:awesome_notifications/awesome_notifications.dart' hide NotificationModel;
 
 import 'package:flutter/material.dart';
-import 'package:hive_flutter/hive_flutter.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:uuid/uuid.dart';
 
+import '../config/app_config.dart';
 import '../models/notification_model.dart';
+import '../models/draw_result_model.dart';
+import 'auth_service.dart';
 
 class AppNotification {
   final String id;
@@ -31,8 +38,6 @@ class NotificationService {
   factory NotificationService() => _instance;
 
   NotificationService._internal();
-
-  Box<NotificationModel> get _box => Hive.box<NotificationModel>('notifications');
 
   static NotificationType _typeFromIndex(int i) {
     switch (i) {
@@ -69,98 +74,68 @@ class NotificationService {
     isRead: m.isRead,
   );
 
-  List<AppNotification> get notifications => _box.values.map(_toApp).toList()..sort((a, b) => b.timestamp.compareTo(a.timestamp));
+  List<AppNotification> notifications(AccountStorage account) {
+    if (!AuthService.canUseStorage(account)) return [];
+    return account.notifications.values.map(_toApp).toList()..sort((a, b) => b.timestamp.compareTo(a.timestamp));
+  }
 
-  int get unreadCount => _box.values.where((n) => !n.isRead).length;
+  int unreadCount(AccountStorage account) {
+    if (!AuthService.canUseStorage(account)) return 0;
+    return account.notifications.values.where((n) => !n.isRead).length;
+  }
 
-  void markAsRead(String id) {
-    try {
-      final entry = _box.values.firstWhere((n) => n.id == id);
-
+  Future<void> markAsRead(AccountStorage account, String id) async {
+    if (!AuthService.canUseStorage(account)) return;
+    for (final entry in account.notifications.values.where((n) => n.id == id && !n.isRead)) {
       entry.isRead = true;
-      entry.save();
-    } catch (e) {
-      debugPrint('Notification not found');
+      if (!AuthService.canUseStorage(account)) return;
+      await account.notifications.update(entry);
     }
   }
 
-  void markAllAsRead() {
-    for (final n in _box.values) {
-      n.isRead = true;
-      n.save();
+  Future<void> markAllAsRead(AccountStorage account) async {
+    if (!AuthService.canUseStorage(account)) return;
+    for (final entry in account.notifications.values.where((n) => !n.isRead)) {
+      entry.isRead = true;
+      if (!AuthService.canUseStorage(account)) return;
+      await account.notifications.update(entry);
     }
   }
 
-  void deleteNotification(String id) {
-    final entries = _box.values.where((n) => n.id == id).toList();
+  Future<void> deleteNotification(AccountStorage account, String id) async {
+    if (!AuthService.canUseStorage(account)) return;
+    await account.notifications.deleteWhere((notification) => notification.id == id);
+  }
 
-    for (final e in entries) {
-      e.delete();
+  Future<void> clearAll(AccountStorage account) async {
+    if (!AuthService.canUseStorage(account)) return;
+    await account.notifications.clear();
+  }
+
+  bool _deviceNotificationsReady = false;
+  Future<bool>? _deviceInitialization;
+
+  Future<bool> prepareDeviceNotifications({bool refresh = false}) {
+    if (_deviceInitialization case final pending?) return pending;
+    if (_deviceNotificationsReady && !refresh) return Future.value(true);
+    return _deviceInitialization = _initializeChannels().whenComplete(() => _deviceInitialization = null);
+  }
+
+  Future<void> initializeDeviceNotifications() async {
+    try {
+      await _initializeDeviceNotifications();
+    } catch (error, stackTrace) {
+      debugPrint('Device notifications could not start: $error\n$stackTrace');
     }
   }
 
-  void clearAll() {
-    _box.clear();
-  }
-
-  void _seedDemoIfEmpty() {
-    if (_box.isNotEmpty) return;
-
-    final demos = [
-      NotificationModel()
-        ..id = '1'
-        ..typeIndex = 0
-        ..title = '🎉 Congratulations! You Won!'
-        ..body = 'Your bond #123456 (Rs. 1500) matched the 1st prize in the January 2026 draw held in Lahore.'
-        ..timestamp = DateTime.now().subtract(const Duration(hours: 2))
-        ..isRead = false,
-
-      NotificationModel()
-        ..id = '2'
-        ..typeIndex = 1
-        ..title = '📅 New Draw Announced'
-        ..body = 'Rs. 750 prize bond draw is scheduled for February 15, 2026 in Karachi. Make sure your bonds are registered!'
-        ..timestamp = DateTime.now().subtract(const Duration(hours: 5))
-        ..isRead = false,
-
-      NotificationModel()
-        ..id = '3'
-        ..typeIndex = 2
-        ..title = '📋 Results Available'
-        ..body = 'Rs. 200 prize bond draw results for January 5, 2026 (Islamabad) are now available. Tap to check your bonds.'
-        ..timestamp = DateTime.now().subtract(const Duration(days: 1))
-        ..isRead = true,
-
-      NotificationModel()
-        ..id = '4'
-        ..typeIndex = 2
-        ..title = '📋 Results Available'
-        ..body = 'Rs. 1500 prize bond draw results for December 15, 2025 (Rawalpindi) are now available.'
-        ..timestamp = DateTime.now().subtract(const Duration(days: 3))
-        ..isRead = true,
-
-      NotificationModel()
-        ..id = '5'
-        ..typeIndex = 1
-        ..title = '📅 Upcoming Draw Reminder'
-        ..body = 'Rs. 25000 prize bond draw is tomorrow (Jan 20, 2026) in Quetta. Check your saved bonds now.'
-        ..timestamp = DateTime.now().subtract(const Duration(days: 4))
-        ..isRead = true,
-    ];
-
-    for (final d in demos) {
-      _box.add(d);
-    }
-  }
-
-  Future<void> init() async {
-    _seedDemoIfEmpty();
-
-    await AwesomeNotifications().initialize(null, [
+  Future<bool> _initializeChannels() async {
+    _deviceNotificationsReady = await AwesomeNotifications().initialize(null, [
       NotificationChannel(
         channelKey: 'win_channel',
         channelName: 'Prize Bond Wins',
         channelDescription: 'Notifications when your bond wins a prize',
+        defaultPrivacy: NotificationPrivacy.Private,
         defaultColor: const Color(0xFF2D5BFF),
         importance: NotificationImportance.High,
         channelShowBadge: true,
@@ -171,6 +146,7 @@ class NotificationService {
         channelKey: 'draw_channel',
         channelName: 'Draw Announcements',
         channelDescription: 'Upcoming draw schedules and reminders',
+        defaultPrivacy: NotificationPrivacy.Private,
         defaultColor: const Color(0xFF8B5CF6),
         importance: NotificationImportance.Default,
         channelShowBadge: true,
@@ -194,188 +170,180 @@ class NotificationService {
         channelShowBadge: true,
       ),
     ], debug: false);
-
-    bool isAllowed = await AwesomeNotifications().isNotificationAllowed();
-
-    if (!isAllowed) {
-      isAllowed = await AwesomeNotifications().requestPermissionToSendNotifications();
-    }
-
-    debugPrint('Notification permission granted: $isAllowed');
+    return _deviceNotificationsReady;
   }
 
-  Future<void> showWinNotification({required String bondNumber, required String denomination, required String city}) async {
-    final body = 'Bond #$bondNumber ($denomination) won a prize in the draw held in $city!';
+  Future<void> _initializeDeviceNotifications() async {
+    if (!await prepareDeviceNotifications(refresh: true)) return;
+    final device = AwesomeNotifications();
+    final prefs = await SharedPreferences.getInstance();
+    await _dismissLegacyPrivateAlerts(device, prefs);
 
-    await AwesomeNotifications().createNotification(
-      content: NotificationContent(
-        id: DateTime.now().millisecondsSinceEpoch ~/ 1000,
-        channelKey: 'win_channel',
-        title: '🎉 Congratulations! You Won!',
-        body: body,
-        notificationLayout: NotificationLayout.BigText,
-        category: NotificationCategory.Reminder,
-        wakeUpScreen: true,
+    const permissionKey = 'device_notification_permission_requested';
+    final alreadyRequested = prefs.getBool(permissionKey) ?? prefs.getBool('draw_notif_seeded') ?? false;
+    if (!alreadyRequested && !await device.isNotificationAllowed() && await prefs.setBool(permissionKey, true)) {
+      await device.requestPermissionToSendNotifications();
+    }
+  }
+
+  Future<void> _dismissLegacyPrivateAlerts(AwesomeNotifications device, SharedPreferences prefs) async {
+    const migrationKey = 'legacy_private_device_alerts_dismissed_v2';
+    if (prefs.getBool(migrationKey) == true) return;
+
+    try {
+      await device.dismissNotificationsByChannelKey('win_channel');
+      await device.dismissNotificationsByChannelKey('general_channel');
+      await prefs.setBool(migrationKey, true);
+    } catch (error) {
+      debugPrint('Could not dismiss the legacy device alerts: $error');
+    }
+  }
+
+  Future<void> _deliverToDevice(AccountStorage account, NotificationType type, NotificationContent content) async {
+    if (!_deviceNotificationsReady) return;
+    final device = AwesomeNotifications();
+    try {
+      if (!await device.isNotificationAllowed() || !AuthService.canUseStorage(account)) return;
+      final preferences = await AuthService.getAllNotifPrefs(account);
+      final allowed = switch (type) {
+        NotificationType.win => preferences['win'] == true,
+        NotificationType.newDraw || NotificationType.resultsAvailable => preferences['draw'] == true,
+        NotificationType.general => true,
+      };
+      if (preferences['all'] == true && allowed && AuthService.canUseStorage(account)) {
+        await device.createNotification(content: content);
+      }
+    } catch (error, stackTrace) {
+      debugPrint('Device notification could not be delivered: $error\n$stackTrace');
+    }
+  }
+
+  Future<void> _publishDrawNotice(
+    AccountStorage account, {
+    required NotificationType type,
+    required String title,
+    required String body,
+    required String channel,
+    required String deviceTitle,
+    required String deviceBody,
+    required NotificationCategory category,
+    required String? eventId,
+  }) async {
+    if (!AuthService.canUseStorage(account)) return;
+    final model = NotificationModel()
+      ..id = eventId ?? const Uuid().v4()
+      ..typeIndex = _indexFromType(type)
+      ..title = title
+      ..body = body
+      ..timestamp = DateTime.now()
+      ..isRead = false;
+
+    if (eventId == null) {
+      await account.notifications.add(model);
+    } else if (!await account.notifications.addIfAbsent(eventId, model)) {
+      return;
+    }
+    if (!AuthService.canUseStorage(account)) return;
+    final digest = sha256.convert(utf8.encode('${account.accountId}|${model.id}')).toString();
+    await _deliverToDevice(
+      account,
+      type,
+      NotificationContent(
+        id: int.parse(digest.substring(0, 7), radix: 16),
+        channelKey: channel,
+        title: deviceTitle,
+        body: deviceBody,
+        notificationLayout: type == NotificationType.win ? NotificationLayout.BigText : NotificationLayout.Default,
+        category: category,
       ),
     );
-
-    final model = NotificationModel()
-      ..id = DateTime.now().millisecondsSinceEpoch.toString()
-      ..typeIndex = _indexFromType(NotificationType.win)
-      ..title = '🎉 Congratulations! You Won!'
-      ..body = body
-      ..timestamp = DateTime.now()
-      ..isRead = false;
-
-    _box.add(model);
   }
 
-  Future<void> showNewDrawNotification({required String denomination, required String date, required String city}) async {
-    final body = '$denomination prize bond draw scheduled for $date in $city.';
-
-    final isAllowed = await AwesomeNotifications().isNotificationAllowed();
-
-    if (isAllowed) {
-      await AwesomeNotifications().createNotification(
-        content: NotificationContent(
-          id: DateTime.now().millisecondsSinceEpoch ~/ 1000,
-          channelKey: 'draw_channel',
-          title: '📅 New Draw Announced',
-          body: body,
-          notificationLayout: NotificationLayout.Default,
-          category: NotificationCategory.Event,
-        ),
-      );
-    } else {
-      debugPrint('Notification permission not granted');
-    }
-
-    final model = NotificationModel()
-      ..id = DateTime.now().millisecondsSinceEpoch.toString()
-      ..typeIndex = _indexFromType(NotificationType.newDraw)
-      ..title = '📅 New Draw Announced'
-      ..body = body
-      ..timestamp = DateTime.now()
-      ..isRead = false;
-
-    _box.add(model);
-  }
-
-  Future<void> showScheduledDrawReminder({
+  Future<void> showWinNotification(
+    AccountStorage account, {
+    required String bondNumber,
     required String denomination,
-    required String date,
     required String city,
-    required DateTime drawDateTime,
+    String? drawNumber,
+    String? eventId,
   }) async {
-    final body = '$denomination prize bond draw is today in $city! Check your bonds now.';
-
-    final scheduleDate = DateTime(drawDateTime.year, drawDateTime.month, drawDateTime.day, 8, 0, 0);
-
-    if (scheduleDate.isAfter(DateTime.now())) {
-      final isAllowed = await AwesomeNotifications().isNotificationAllowed();
-
-      if (isAllowed) {
-        await AwesomeNotifications().createNotification(
-          content: NotificationContent(
-            id: drawDateTime.millisecondsSinceEpoch ~/ 1000,
-            channelKey: 'draw_channel',
-            title: '📅 Draw Day Reminder',
-            body: body,
-            notificationLayout: NotificationLayout.Default,
-            category: NotificationCategory.Reminder,
-            wakeUpScreen: true,
-          ),
-          schedule: NotificationCalendar(
-            year: scheduleDate.year,
-            month: scheduleDate.month,
-            day: scheduleDate.day,
-            hour: scheduleDate.hour,
-            minute: scheduleDate.minute,
-            second: 0,
-            allowWhileIdle: true,
-            preciseAlarm: true,
-          ),
-        );
-      } else {
-        debugPrint('Notification permission not granted — reminder not scheduled');
+    if (!AuthService.canUseStorage(account)) return;
+    if (eventId != null) {
+      final legacyBody = 'Bond #$bondNumber ($denomination) won a prize in the draw held in $city!';
+      if (account.notifications.values.any(
+        (notice) => notice.typeIndex == _indexFromType(NotificationType.win) && notice.body == legacyBody,
+      )) {
+        return;
       }
-    } else {
-      debugPrint('Draw date is not in the future — skipping system notification schedule');
     }
-
-    final model = NotificationModel()
-      ..id = DateTime.now().millisecondsSinceEpoch.toString()
-      ..typeIndex = _indexFromType(NotificationType.newDraw)
-      ..title = '📅 Draw Reminder Set'
-      ..body = 'Reminder set for $denomination draw on $date in $city'
-      ..timestamp = DateTime.now()
-      ..isRead = false;
-
-    _box.add(model);
+    final draw = drawNumber == null ? 'a draw' : 'Draw #$drawNumber';
+    await _publishDrawNotice(
+      account,
+      type: NotificationType.win,
+      title: '🎉 Congratulations! You Won!',
+      body: 'Bond #$bondNumber ($denomination) matched a prize in $draw held in $city. ${AppConfig.simulatedResultsLabel}.',
+      channel: 'win_channel',
+      deviceTitle: 'Saved bond update',
+      deviceBody: 'Unlock the app to view your account notification.',
+      category: NotificationCategory.Reminder,
+      eventId: eventId,
+    );
   }
 
-  Future<void> showResultsAvailableNotification({
+  Future<void> showNewDrawNotification(
+    AccountStorage account, {
     required String denomination,
     required String date,
     required String city,
-  }) async {
-    final body = '$denomination draw results for $date ($city) are now available. Tap to check your bonds.';
-
-    bool isAllowed = await AwesomeNotifications().isNotificationAllowed();
-
-    if (!isAllowed) {
-      isAllowed = await AwesomeNotifications().requestPermissionToSendNotifications();
-    }
-
-    if (isAllowed) {
-      await AwesomeNotifications().createNotification(
-        content: NotificationContent(
-          id: DateTime.now().millisecondsSinceEpoch ~/ 1000,
-          channelKey: 'results_channel',
-          title: '📋 Results Available',
-          body: body,
-          notificationLayout: NotificationLayout.Default,
-          category: NotificationCategory.Status,
-        ),
-      );
-    }
-
-    final model = NotificationModel()
-      ..id = DateTime.now().millisecondsSinceEpoch.toString()
-      ..typeIndex = _indexFromType(NotificationType.resultsAvailable)
-      ..title = '📋 Results Available'
-      ..body = body
-      ..timestamp = DateTime.now()
-      ..isRead = false;
-
-    _box.add(model);
+    String? eventId,
+  }) {
+    final body = 'Sample $denomination draw scheduled for $date in $city.';
+    return _publishDrawNotice(
+      account,
+      type: NotificationType.newDraw,
+      title: '📅 New Draw Announced',
+      body: body,
+      channel: 'draw_channel',
+      deviceTitle: '📅 New Draw Announced',
+      deviceBody: body,
+      category: NotificationCategory.Event,
+      eventId: eventId,
+    );
   }
 
-  Future<void> showApprovalNotification({required String userName}) async {
-    final body = '$userName, your account has been approved. You can now sign in with your PIN.';
+  Future<void> recordDrawReminder(AccountStorage account, DrawResult draw, int notificationId) async {
+    if (!AuthService.canUseStorage(account)) return;
+    final key = 'draw-reminder:$notificationId';
+    await account.notifications.addIfAbsent(
+      key,
+      NotificationModel()
+        ..id = key
+        ..typeIndex = _indexFromType(NotificationType.newDraw)
+        ..title = '📅 Draw Reminder Set'
+        ..body = 'Reminder set for the sample ${draw.denomination} draw on ${draw.drawDate} in ${draw.city}.'
+        ..timestamp = DateTime.now()
+        ..isRead = false,
+    );
+  }
 
-    final isAllowed = await AwesomeNotifications().isNotificationAllowed();
-    if (isAllowed) {
-      await AwesomeNotifications().createNotification(
-        content: NotificationContent(
-          id: DateTime.now().millisecondsSinceEpoch ~/ 1000,
-          channelKey: 'general_channel',
-          title: 'Account Approved',
-          body: body,
-          notificationLayout: NotificationLayout.Default,
-          category: NotificationCategory.Status,
-        ),
-      );
-    }
-
-    final model = NotificationModel()
-      ..id = DateTime.now().millisecondsSinceEpoch.toString()
-      ..typeIndex = _indexFromType(NotificationType.general)
-      ..title = 'Account Approved'
-      ..body = body
-      ..timestamp = DateTime.now()
-      ..isRead = false;
-
-    _box.add(model);
+  Future<void> showResultsAvailableNotification(
+    AccountStorage account, {
+    required String denomination,
+    required String date,
+    required String city,
+    String? eventId,
+  }) {
+    final body = 'Simulated $denomination results for $date ($city) are available. Tap to check your bonds.';
+    return _publishDrawNotice(
+      account,
+      type: NotificationType.resultsAvailable,
+      title: '📋 Results Available',
+      body: body,
+      channel: 'results_channel',
+      deviceTitle: '📋 Results Available',
+      deviceBody: body,
+      category: NotificationCategory.Status,
+      eventId: eventId,
+    );
   }
 }

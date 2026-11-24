@@ -23,13 +23,15 @@ class BondAdapter extends TypeAdapter<Bond> {
       ..status = fields[3] as String
       ..addedDate = fields[4] as DateTime
       ..lastChecked = fields[5] as DateTime?
-      ..lastResult = fields[6] as String?;
+      ..lastResult = fields[6] as String?
+      ..issueDate = fields[7] as DateTime?
+      ..issueCity = fields[8] as String?;
   }
 
   @override
   void write(BinaryWriter writer, Bond obj) {
     writer
-      ..writeByte(7)
+      ..writeByte(9)
       ..writeByte(0)
       ..write(obj.id)
       ..writeByte(1)
@@ -43,7 +45,11 @@ class BondAdapter extends TypeAdapter<Bond> {
       ..writeByte(5)
       ..write(obj.lastChecked)
       ..writeByte(6)
-      ..write(obj.lastResult);
+      ..write(obj.lastResult)
+      ..writeByte(7)
+      ..write(obj.issueDate)
+      ..writeByte(8)
+      ..write(obj.issueCity);
   }
 
   @override

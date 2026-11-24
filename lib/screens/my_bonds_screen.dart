@@ -1,10 +1,12 @@
+import 'package:prize_bond_checking_app/models/bond_check_result.dart';
+import 'package:prize_bond_checking_app/services/bond_checking_service.dart';
 import 'package:flutter/material.dart';
-import 'package:hive_flutter/hive_flutter.dart';
+import 'package:prize_bond_checking_app/widgets/bond_number_extractor.dart';
+import 'package:prize_bond_checking_app/services/auth_service.dart';
 import 'package:prize_bond_checking_app/config/app_config.dart';
 import 'package:prize_bond_checking_app/models/bond_model.dart';
 import 'package:prize_bond_checking_app/screens/scanner_screen.dart';
-import 'package:prize_bond_checking_app/services/draw_service.dart';
-import 'package:prize_bond_checking_app/services/notification_service.dart';
+import 'package:uuid/uuid.dart';
 
 class MyBondsScreen extends StatefulWidget {
   const MyBondsScreen({super.key});
@@ -14,8 +16,10 @@ class MyBondsScreen extends StatefulWidget {
 }
 
 class _MyBondsScreenState extends State<MyBondsScreen> {
-  Box<Bond> get _box => Hive.box<Bond>('bonds');
-  final DrawService _drawService = DrawService();
+  late final _storage = AuthService.requireStorage();
+
+  PrivateRecords<Bond> get _box => _storage.bonds;
+  final _checking = BondCheckingService();
 
   String _selectedFilter = 'All';
   final List<String> filterOptions = ['All', ...AppConfig.denominations];
@@ -35,8 +39,8 @@ class _MyBondsScreenState extends State<MyBondsScreen> {
           _buildFilterSection(),
           Expanded(
             child: ValueListenableBuilder(
-              valueListenable: _box.listenable(),
-              builder: (context, Box<Bond> box, _) {
+              valueListenable: _box,
+              builder: (context, PrivateRecords<Bond> box, _) {
                 final bonds = _filteredBonds(box.values.toList());
                 return bonds.isEmpty ? _buildEmptyState() : _buildBondsList(bonds);
               },
@@ -217,6 +221,13 @@ class _MyBondsScreenState extends State<MyBondsScreen> {
                           Text(_formatDate(bond.addedDate), style: const TextStyle(fontSize: 13, color: Color(0xFF6B7280))),
                         ],
                       ),
+                      if (bond.issueDate != null)
+                        Text(
+                          'Issued ${_formatDate(bond.issueDate!)}',
+                          style: const TextStyle(fontSize: 12, color: Color(0xFF6B7280)),
+                        ),
+                      if (bond.issueCity != null)
+                        Text(bond.issueCity!, style: const TextStyle(fontSize: 12, color: Color(0xFF6B7280))),
                       if (bond.lastChecked != null) ...[
                         const SizedBox(height: 2),
                         Row(
@@ -317,114 +328,32 @@ class _MyBondsScreenState extends State<MyBondsScreen> {
     );
   }
 
-  void _showAddBondDialog({String? prefillNumber}) {
-    final bondNumberController = TextEditingController(text: prefillNumber ?? '');
-    String selectedDenomination = AppConfig.defaultDenomination;
-
-    showDialog(
+  Future<void> _showAddBondDialog() async {
+    final saved = await showDialog<bool>(
       context: context,
-      builder: (context) => StatefulBuilder(
-        builder: (context, setDialogState) => AlertDialog(
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-          title: const Text('Add New Bond'),
-          content: SingleChildScrollView(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                TextField(
-                  controller: bondNumberController,
-                  keyboardType: TextInputType.number,
-                  maxLength: 6,
-                  decoration: InputDecoration(
-                    labelText: 'Bond Number',
-                    hintText: 'Enter 6-digit number',
-                    prefixIcon: const Icon(Icons.numbers),
-                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-                    counterText: '',
-                  ),
-                ),
-                const SizedBox(height: 16),
-                DropdownButtonFormField<String>(
-                  value: selectedDenomination,
-                  decoration: InputDecoration(
-                    labelText: 'Denomination',
-                    prefixIcon: const Icon(Icons.attach_money),
-                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-                  ),
-                  items: AppConfig.denominations.map((d) => DropdownMenuItem(value: d, child: Text(d))).toList(),
-                  onChanged: (val) => setDialogState(() => selectedDenomination = val!),
-                ),
-                const SizedBox(height: 16),
-                SizedBox(
-                  width: double.infinity,
-                  child: OutlinedButton.icon(
-                    onPressed: () async {
-                      Navigator.pop(context);
-                      final scannedNumber = await Navigator.push(
-                        context,
-                        MaterialPageRoute(builder: (_) => ScannerScreen(initialDenomination: selectedDenomination)),
-                      );
-                      if (scannedNumber != null) {
-                        _showAddBondDialog(prefillNumber: scannedNumber);
-                      }
-                    },
-                    icon: const Icon(Icons.qr_code_scanner, size: 16),
-                    label: const Text('Scan Instead'),
-                    style: OutlinedButton.styleFrom(
-                      foregroundColor: const Color(0xFF2D5BFF),
-                      side: const BorderSide(color: Color(0xFF2D5BFF)),
-                      padding: const EdgeInsets.symmetric(vertical: 12),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-          actions: [
-            TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
-            ElevatedButton(
-              onPressed: () {
-                if (bondNumberController.text.length == 6) {
-                  final bond = Bond()
-                    ..id = DateTime.now().millisecondsSinceEpoch.toString()
-                    ..number = bondNumberController.text
-                    ..denomination = selectedDenomination
-                    ..status = 'Active'
-                    ..addedDate = DateTime.now();
-                  _box.add(bond);
-                  Navigator.pop(context);
-                  ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Bond added successfully!')));
-                } else {
-                  ScaffoldMessenger.of(
-                    context,
-                  ).showSnackBar(const SnackBar(content: Text('Please enter a valid 6-digit number')));
-                }
-              },
-              style: ElevatedButton.styleFrom(
-                backgroundColor: const Color(0xFF2D5BFF),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-              ),
-              child: const Text('Add Bond', style: TextStyle(color: Colors.white)),
-            ),
-          ],
-        ),
-      ),
+      builder: (_) => _AddBondDialog(storage: _storage),
     );
+    if (saved == true && mounted && AuthService.canUseStorage(_storage)) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Bond added successfully!')));
+    }
   }
 
-  void _checkSingleBond(Bond bond) {
-    final result = _drawService.checkBond(bond.number, bond.denomination);
-
-    bond.lastChecked = DateTime.now();
-    bond.status = result != null ? 'Won' : 'No Win';
-    bond.lastResult = result?.drawNumber;
-    bond.save();
-
-    if (result != null) {
-      NotificationService().showWinNotification(bondNumber: bond.number, denomination: bond.denomination, city: result.city);
+  Future<bool> _commit(Future<void> write) async {
+    try {
+      await write;
+      return mounted && AuthService.canUseStorage(_storage);
+    } catch (_) {
+      if (mounted && AuthService.canUseStorage(_storage)) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Could not save the bond change.')));
+      }
+      return false;
     }
+  }
+
+  Future<void> _checkSingleBond(Bond bond) async {
+    final result = await _checkSavedBond(bond);
+    if (result == null || !mounted || !AuthService.canUseStorage(_storage)) return;
+    final win = result.win;
 
     showDialog(
       context: context,
@@ -433,11 +362,11 @@ class _MyBondsScreenState extends State<MyBondsScreen> {
         title: Row(
           children: [
             Icon(
-              result != null ? Icons.emoji_events : Icons.info_outline,
-              color: result != null ? const Color(0xFF059669) : const Color(0xFF2D5BFF),
+              win != null ? Icons.emoji_events : Icons.info_outline,
+              color: win != null ? const Color(0xFF059669) : const Color(0xFF2D5BFF),
             ),
             const SizedBox(width: 12),
-            Text(result != null ? 'Winner!' : 'Check Result'),
+            Text(win != null ? 'Winner!' : 'Check Result'),
           ],
         ),
         content: Column(
@@ -447,27 +376,28 @@ class _MyBondsScreenState extends State<MyBondsScreen> {
             Text('Bond Number: ${bond.number}'),
             const SizedBox(height: 8),
             Text('Denomination: ${bond.denomination}'),
+            const Text(AppConfig.simulatedResultsLabel),
             const SizedBox(height: 16),
             Container(
               padding: const EdgeInsets.all(16),
               decoration: BoxDecoration(
-                color: result != null ? const Color(0xFFD1FAE5) : const Color(0xFFFEF3C7),
+                color: win != null ? const Color(0xFFD1FAE5) : const Color(0xFFFEF3C7),
                 borderRadius: BorderRadius.circular(12),
               ),
               child: Row(
                 children: [
                   Icon(
-                    result != null ? Icons.emoji_events : Icons.sentiment_neutral,
-                    color: result != null ? const Color(0xFF059669) : const Color(0xFF92400E),
+                    win != null ? Icons.emoji_events : Icons.sentiment_neutral,
+                    color: win != null ? const Color(0xFF059669) : const Color(0xFF92400E),
                   ),
                   const SizedBox(width: 12),
                   Expanded(
                     child: Text(
-                      result != null
-                          ? '🎉 Won in Draw #${result.drawNumber} (${result.drawDate})\n${_drawService.getPrizePosition(result, bond.number)} — ${_drawService.getPrizeAmount(result, bond.number)}'
-                          : 'No win found in completed draws',
+                      win != null
+                          ? 'Won in Draw #${win.drawNumber} (${win.drawDate})\n${win.position} • ${win.amount}'
+                          : '${result.outcome.label}\n${result.coverage.summary}',
                       style: TextStyle(
-                        color: result != null ? const Color(0xFF059669) : const Color(0xFF92400E),
+                        color: win != null ? const Color(0xFF059669) : const Color(0xFF92400E),
                         fontWeight: FontWeight.w600,
                       ),
                     ),
@@ -491,30 +421,51 @@ class _MyBondsScreenState extends State<MyBondsScreen> {
     );
   }
 
-  void _checkAllBonds() {
+  Future<void> _checkAllBonds() async {
     if (_box.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('No bonds to check. Add bonds first.')));
       return;
     }
 
-    int wins = 0;
+    var wins = 0;
+    var noWins = 0;
+    var unavailable = 0;
+    var failed = 0;
     for (final bond in _box.values) {
-      final result = _drawService.checkBond(bond.number, bond.denomination);
-      bond.lastChecked = DateTime.now();
-      bond.status = result != null ? 'Won' : 'No Win';
-      bond.lastResult = result?.drawNumber;
-      bond.save();
-      if (result != null) wins++;
+      if (!mounted || !AuthService.canUseStorage(_storage)) return;
+      switch ((await _checkSavedBond(bond, showError: false))?.outcome) {
+        case BondCheckOutcome.win:
+          wins++;
+        case BondCheckOutcome.noWin:
+          noWins++;
+        case BondCheckOutcome.resultsUnavailable:
+          unavailable++;
+        case null:
+          failed++;
+      }
     }
 
+    if (!mounted || !AuthService.canUseStorage(_storage)) return;
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(
-          wins > 0 ? '🎉 $wins winning bond${wins > 1 ? 's' : ''} found!' : 'Checked ${_box.length} bonds — no wins found',
+          '${AppConfig.simulatedResultsLabel}: $wins won, $noWins no win, $unavailable results unavailable'
+          '${failed > 0 ? ', $failed could not be checked' : ''}',
         ),
         backgroundColor: wins > 0 ? const Color(0xFF059669) : const Color(0xFF2D5BFF),
       ),
     );
+  }
+
+  Future<BondCheckResult?> _checkSavedBond(Bond bond, {bool showError = true}) async {
+    try {
+      return await _checking.check(_storage, bond.number, bond.denomination, recordHistory: false);
+    } catch (_) {
+      if (showError && mounted && AuthService.canUseStorage(_storage)) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Could not check this saved bond.')));
+      }
+      return null;
+    }
   }
 
   void _deleteBond(Bond bond) {
@@ -527,8 +478,8 @@ class _MyBondsScreenState extends State<MyBondsScreen> {
         actions: [
           TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
           ElevatedButton(
-            onPressed: () {
-              bond.delete();
+            onPressed: () async {
+              if (!await _commit(_box.delete(bond)) || !context.mounted) return;
               Navigator.pop(context);
               ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Bond deleted successfully')));
             },
@@ -546,5 +497,190 @@ class _MyBondsScreenState extends State<MyBondsScreen> {
   String _formatDate(DateTime dt) {
     final months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
     return '${months[dt.month - 1]} ${dt.day}, ${dt.year}';
+  }
+}
+
+class _AddBondDialog extends StatefulWidget {
+  const _AddBondDialog({required this.storage});
+
+  final AccountStorage storage;
+
+  @override
+  State<_AddBondDialog> createState() => _AddBondDialogState();
+}
+
+class _AddBondDialogState extends State<_AddBondDialog> {
+  static const _cities = ['Karachi', 'Lahore', 'Islamabad', 'Rawalpindi', 'Peshawar', 'Quetta', 'Muzaffarabad', 'Faisalabad'];
+  final _numberController = TextEditingController();
+  final _bondId = const Uuid().v4();
+  var _denomination = AppConfig.defaultDenomination;
+  DateTime? _issueDate;
+  String? _issueCity;
+  String? _numberError;
+  String? _saveError;
+  bool _saving = false;
+
+  bool get _isActive => mounted && AuthService.canUseStorage(widget.storage);
+
+  @override
+  void dispose() {
+    _numberController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _pickIssueDate() async {
+    final today = DateUtils.dateOnly(DateTime.now());
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: _issueDate ?? today,
+      firstDate: DateTime(2000),
+      lastDate: today,
+    );
+    if (_isActive && picked != null) {
+      // Keep the picked calendar date independent of later device time-zone changes.
+      setState(() => _issueDate = DateTime.utc(picked.year, picked.month, picked.day));
+    }
+  }
+
+  Future<void> _scan() async {
+    final scan = await Navigator.of(context).push<BondScanResult>(
+      MaterialPageRoute(builder: (_) => ScannerScreen(initialDenomination: _denomination, captureOnly: true)),
+    );
+    if (!_isActive || scan == null) return;
+    _numberController.text = scan.number;
+    setState(() {
+      _denomination = scan.denomination;
+      _numberError = null;
+    });
+  }
+
+  Future<void> _save() async {
+    if (_saving || !_isActive) return;
+    final number = _numberController.text.trim();
+    if (!BondNumberExtractor.isValidBondNumber(number)) {
+      setState(() => _numberError = 'Please enter a valid 6-digit number');
+      return;
+    }
+
+    setState(() {
+      _saving = true;
+      _numberError = null;
+      _saveError = null;
+    });
+    final now = DateTime.now();
+    final bond = Bond()
+      ..id = _bondId
+      ..number = number
+      ..denomination = _denomination
+      ..status = 'Active'
+      ..addedDate = now
+      ..issueDate = _issueDate
+      ..issueCity = _issueCity;
+
+    try {
+      await widget.storage.bonds.addIfAbsent(_bondId, bond);
+      if (_isActive) Navigator.of(context).pop(true);
+    } catch (_) {
+      if (_isActive) setState(() => _saveError = 'Could not save the bond. Please try again.');
+    } finally {
+      if (_isActive) setState(() => _saving = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final issueDate = _issueDate;
+    return PopScope(
+      canPop: !_saving,
+      child: AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: const Text('Add New Bond'),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              TextField(
+                controller: _numberController,
+                enabled: !_saving,
+                keyboardType: TextInputType.number,
+                maxLength: 6,
+                onChanged: (_) {
+                  if (_numberError != null) setState(() => _numberError = null);
+                },
+                decoration: InputDecoration(
+                  labelText: 'Bond Number',
+                  hintText: 'Enter 6-digit number',
+                  prefixIcon: const Icon(Icons.numbers),
+                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                  counterText: '',
+                  errorText: _numberError,
+                ),
+              ),
+              const SizedBox(height: 16),
+              DropdownButtonFormField<String>(
+                initialValue: _denomination,
+                decoration: InputDecoration(
+                  labelText: 'Denomination',
+                  prefixIcon: const Icon(Icons.attach_money),
+                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                ),
+                items: AppConfig.denominations.map((value) => DropdownMenuItem(value: value, child: Text(value))).toList(),
+                onChanged: _saving ? null : (value) => setState(() => _denomination = value!),
+              ),
+              const SizedBox(height: 16),
+              InkWell(
+                onTap: _saving ? null : _pickIssueDate,
+                child: InputDecorator(
+                  decoration: InputDecoration(
+                    labelText: 'Date of Issue',
+                    prefixIcon: const Icon(Icons.calendar_today),
+                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                  ),
+                  child: Text(issueDate == null ? 'Select Date' : '${issueDate.day}/${issueDate.month}/${issueDate.year}'),
+                ),
+              ),
+              const SizedBox(height: 16),
+              DropdownButtonFormField<String>(
+                initialValue: _issueCity,
+                decoration: InputDecoration(
+                  labelText: 'City',
+                  prefixIcon: const Icon(Icons.location_city),
+                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                ),
+                items: _cities.map((city) => DropdownMenuItem(value: city, child: Text(city))).toList(),
+                onChanged: _saving ? null : (value) => setState(() => _issueCity = value),
+              ),
+              const SizedBox(height: 16),
+              SizedBox(
+                width: double.infinity,
+                child: OutlinedButton.icon(
+                  onPressed: _saving ? null : _scan,
+                  icon: const Icon(Icons.qr_code_scanner, size: 16),
+                  label: const Text('Scan Instead'),
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: const Color(0xFF2D5BFF),
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  ),
+                ),
+              ),
+              if (_saveError case final error?) Text(error, style: TextStyle(color: Theme.of(context).colorScheme.error)),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(onPressed: _saving ? null : () => Navigator.pop(context), child: const Text('Cancel')),
+          ElevatedButton(
+            onPressed: _saving ? null : _save,
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFF2D5BFF),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+            ),
+            child: Text(_saving ? 'Saving…' : 'Add Bond', style: const TextStyle(color: Colors.white)),
+          ),
+        ],
+      ),
+    );
   }
 }

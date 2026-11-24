@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:prize_bond_checking_app/screens/auth/landing_screen.dart';
 import 'package:prize_bond_checking_app/screens/auth/pending_approval_screen.dart';
+import 'package:prize_bond_checking_app/services/account_credentials.dart';
 import 'package:prize_bond_checking_app/services/auth_service.dart';
 
 class RegisterScreen extends StatefulWidget {
@@ -25,7 +27,6 @@ class _RegisterScreenState extends State<RegisterScreen> {
   bool _obscureConfirmPin = true;
   bool _acceptTerms = false;
   bool _isLoading = false;
-  String _selectedRole = 'normal';
 
   @override
   void dispose() {
@@ -56,24 +57,42 @@ class _RegisterScreenState extends State<RegisterScreen> {
 
     setState(() => _isLoading = true);
 
-    await AuthService.registerUser(
-      firstName: _firstNameController.text.trim(),
-      lastName: _lastNameController.text.trim(),
-      mobile: _mobileController.text.trim(),
-      email: _emailController.text.trim(),
-      pin: _pinController.text.trim(),
-      address: _addressController.text.trim(),
-      city: _cityController.text.trim(),
-      role: _selectedRole == 'admin' ? 'Admin' : 'Normal User',
-    );
-
-    setState(() => _isLoading = false);
-    if (!mounted) return;
-
-    Navigator.pushReplacement(
-      context,
-      MaterialPageRoute(builder: (_) => PendingApprovalScreen(email: _emailController.text.trim())),
-    );
+    try {
+      final registration = await AuthService.registerUser(
+        firstName: _firstNameController.text,
+        lastName: _lastNameController.text,
+        mobile: _mobileController.text,
+        email: _emailController.text,
+        pin: _pinController.text,
+        address: _addressController.text,
+        city: _cityController.text,
+      );
+      if (!mounted) return;
+      final account = registration.account;
+      if (!registration.selectionSaved) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('Account created. Sign in with your registered email to continue.')));
+        Navigator.pushAndRemoveUntil(context, MaterialPageRoute<void>(builder: (_) => const LandingScreen()), (_) => false);
+        return;
+      }
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(
+          builder: (_) => PendingApprovalScreen(accountId: account.id, email: account.email),
+        ),
+      );
+    } on CredentialException catch (error) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(error.message)));
+    } on AccountException catch (error) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(error.message)));
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Could not register. Please try again.')));
+      }
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
+    }
   }
 
   InputDecoration _dec(String label, IconData icon, {Widget? suffix}) {
@@ -266,52 +285,6 @@ class _RegisterScreenState extends State<RegisterScreen> {
                 ),
                 const SizedBox(height: 28),
 
-                const _SectionLabel(label: 'Account Type'),
-                const SizedBox(height: 12),
-
-                Container(
-                  decoration: BoxDecoration(
-                    color: Colors.white,
-                    borderRadius: BorderRadius.circular(16),
-                    border: Border.all(color: const Color(0xFFE5E7EB)),
-                  ),
-                  child: Column(
-                    children: [
-                      _RoleOption(
-                        title: 'Normal User',
-                        subtitle: 'Check and manage your prize bonds',
-                        icon: Icons.person_outline,
-                        value: 'normal',
-                        groupValue: _selectedRole,
-                        isFirst: true,
-                        onChanged: (value) {
-                          setState(() {
-                            _selectedRole = value!;
-                          });
-                        },
-                      ),
-
-                      Divider(height: 1, color: Colors.grey.withOpacity(0.12)),
-
-                      _RoleOption(
-                        title: 'Admin',
-                        subtitle: 'Manage users and approvals',
-                        icon: Icons.admin_panel_settings_outlined,
-                        value: 'admin',
-                        groupValue: _selectedRole,
-                        isFirst: false,
-                        onChanged: (value) {
-                          setState(() {
-                            _selectedRole = value!;
-                          });
-                        },
-                      ),
-                    ],
-                  ),
-                ),
-
-                const SizedBox(height: 24),
-
                 GestureDetector(
                   onTap: () => setState(() => _acceptTerms = !_acceptTerms),
                   child: Row(
@@ -398,74 +371,6 @@ class _SectionLabel extends StatelessWidget {
           style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w700, color: Color(0xFF1F2937)),
         ),
       ],
-    );
-  }
-}
-
-class _RoleOption extends StatelessWidget {
-  final String title, subtitle, value, groupValue;
-  final IconData icon;
-  final ValueChanged<String?> onChanged;
-  final bool isFirst;
-
-  const _RoleOption({
-    required this.title,
-    required this.subtitle,
-    required this.icon,
-    required this.value,
-    required this.groupValue,
-    required this.onChanged,
-    required this.isFirst,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final sel = value == groupValue;
-    return GestureDetector(
-      onTap: () => onChanged(value),
-      child: Container(
-        padding: const EdgeInsets.all(16),
-        decoration: BoxDecoration(
-          color: sel ? const Color(0xFF2D5BFF).withOpacity(0.05) : Colors.transparent,
-          borderRadius: BorderRadius.only(
-            topLeft: isFirst ? const Radius.circular(16) : Radius.zero,
-            topRight: isFirst ? const Radius.circular(16) : Radius.zero,
-            bottomLeft: !isFirst ? const Radius.circular(16) : Radius.zero,
-            bottomRight: !isFirst ? const Radius.circular(16) : Radius.zero,
-          ),
-        ),
-        child: Row(
-          children: [
-            Container(
-              width: 40,
-              height: 40,
-              decoration: BoxDecoration(
-                color: sel ? const Color(0xFF2D5BFF).withOpacity(0.1) : Colors.grey[100],
-                borderRadius: BorderRadius.circular(10),
-              ),
-              child: Icon(icon, color: sel ? const Color(0xFF2D5BFF) : Colors.grey[400], size: 20),
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    title,
-                    style: TextStyle(
-                      fontWeight: FontWeight.w600,
-                      fontSize: 14,
-                      color: sel ? const Color(0xFF2D5BFF) : const Color(0xFF1F2937),
-                    ),
-                  ),
-                  Text(subtitle, style: TextStyle(fontSize: 12, color: Colors.grey[500])),
-                ],
-              ),
-            ),
-            Radio<String>(value: value, groupValue: groupValue, onChanged: onChanged, activeColor: const Color(0xFF2D5BFF)),
-          ],
-        ),
-      ),
     );
   }
 }

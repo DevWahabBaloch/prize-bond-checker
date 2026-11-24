@@ -25,13 +25,14 @@ class ListingAdapter extends TypeAdapter<Listing> {
       ..price = fields[5] as double
       ..location = fields[6] as String
       ..postedDate = fields[7] as DateTime
-      ..isActive = fields[8] as bool;
+      ..isActive = fields[8] as bool
+      ..ownerAccountId = fields[9] as String?;
   }
 
   @override
   void write(BinaryWriter writer, Listing obj) {
     writer
-      ..writeByte(9)
+      ..writeByte(10)
       ..writeByte(0)
       ..write(obj.id)
       ..writeByte(1)
@@ -49,7 +50,9 @@ class ListingAdapter extends TypeAdapter<Listing> {
       ..writeByte(7)
       ..write(obj.postedDate)
       ..writeByte(8)
-      ..write(obj.isActive);
+      ..write(obj.isActive)
+      ..writeByte(9)
+      ..write(obj.ownerAccountId);
   }
 
   @override

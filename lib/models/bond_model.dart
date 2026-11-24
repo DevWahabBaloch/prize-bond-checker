@@ -14,7 +14,7 @@ class Bond extends HiveObject {
   late String denomination;
 
   @HiveField(3)
-  late String status; 
+  late String status;
 
   @HiveField(4)
   late DateTime addedDate;
@@ -23,5 +23,11 @@ class Bond extends HiveObject {
   DateTime? lastChecked;
 
   @HiveField(6)
-  String? lastResult; 
+  String? lastResult;
+
+  @HiveField(7)
+  DateTime? issueDate;
+
+  @HiveField(8)
+  String? issueCity;
 }

@@ -1,3 +1,4 @@
+import 'package:prize_bond_checking_app/services/draw_service.dart';
 import 'package:flutter/material.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import 'package:prize_bond_checking_app/models/bond_model.dart';
@@ -24,6 +25,8 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen> {
+  late final _storage = AuthService.requireStorage();
+
   String _userName = 'User';
   bool _isLoading = true;
 
@@ -33,11 +36,11 @@ class _HomeScreenState extends State<HomeScreen> {
     _loadUserProfile();
   }
 
-  Future<void> _loadUserProfile() async {
-    final profile = await AuthService.getUserProfile();
+  void _loadUserProfile() {
+    final profile = AuthService.profile(_storage);
     if (mounted) {
       setState(() {
-        _userName = profile['name'] ?? 'User';
+        _userName = profile.fullName;
         _isLoading = false;
       });
     }
@@ -60,7 +63,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 return SingleChildScrollView(
                   child: Column(
                     children: [
-                      _buildHeader(width),
+                      ValueListenableBuilder(valueListenable: _storage.notifications, builder: (_, _, _) => _buildHeader(width)),
                       SizedBox(height: width >= _BP.tablet ? 28 : 20),
                       _buildBody(width),
                       const SizedBox(height: 100),
@@ -138,7 +141,7 @@ class _HomeScreenState extends State<HomeScreen> {
         : isTablet
         ? 24.0
         : 22.0;
-    final unreadCount = NotificationService().unreadCount;
+    final unreadCount = NotificationService().unreadCount(_storage);
     final topInset = MediaQuery.of(context).padding.top;
 
     return Container(
@@ -399,8 +402,8 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
           const SizedBox(height: 16),
           ValueListenableBuilder(
-            valueListenable: Hive.box<Bond>('bonds').listenable(),
-            builder: (context, Box<Bond> box, _) {
+            valueListenable: _storage.bonds,
+            builder: (context, PrivateRecords<Bond> box, _) {
               if (box.isEmpty) {
                 return _buildEmptyState(Icons.bookmark_border_rounded, 'No bonds saved yet — tap Add New');
               }
@@ -486,9 +489,11 @@ class _HomeScreenState extends State<HomeScreen> {
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Text(
-                'Recent Draws',
-                style: TextStyle(fontSize: isTablet ? 22 : 20, fontWeight: FontWeight.bold, color: const Color(0xFF1F2937)),
+              Flexible(
+                child: Text(
+                  'Recent Sample Draws',
+                  style: TextStyle(fontSize: isTablet ? 22 : 20, fontWeight: FontWeight.bold, color: const Color(0xFF1F2937)),
+                ),
               ),
               TextButton(
                 onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const DrawsScreen())),
@@ -503,7 +508,7 @@ class _HomeScreenState extends State<HomeScreen> {
           ValueListenableBuilder(
             valueListenable: Hive.box<DrawResult>('draws').listenable(),
             builder: (context, Box<DrawResult> box, _) {
-              final completed = box.values.where((d) => d.status == 'completed').toList().reversed.take(3).toList();
+              final completed = DrawService().getCompleted().reversed.take(3).toList();
 
               if (completed.isEmpty) {
                 return _buildEmptyState(Icons.history_rounded, 'No completed draws yet');

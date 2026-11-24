@@ -2,94 +2,98 @@ import 'package:flutter/material.dart';
 import 'package:prize_bond_checking_app/config/app_config.dart';
 import 'package:prize_bond_checking_app/screens/admin/admin_screen.dart';
 import 'package:prize_bond_checking_app/screens/auth/register_screen.dart';
+import 'package:prize_bond_checking_app/services/auth_service.dart';
+import 'pending_approval_screen.dart';
+import 'pin_screen.dart';
 
 class LandingScreen extends StatelessWidget {
   const LandingScreen({super.key});
 
-  static const String _adminPassword = AppConfig.adminPassword;
+  Future<void> _showAdminPasswordDialog(BuildContext context) async {
+    final passphrase = await _readCredential(context, admin: true);
+    if (passphrase == null || !context.mounted) return;
+    try {
+      final access = await AuthService.authenticateAdmin(passphrase);
+      if (!context.mounted) {
+        access?.close();
+        return;
+      }
+      if (access == null) {
+        _showError(context, 'Incorrect passphrase.');
+        return;
+      }
+      if (!access.isOpen) return;
+      try {
+        await Navigator.push<void>(context, MaterialPageRoute(builder: (_) => AdminScreen(access: access)));
+      } finally {
+        access.close();
+      }
+    } on AccountException catch (error) {
+      if (context.mounted) _showError(context, error.message);
+    } catch (_) {
+      if (context.mounted) _showError(context, 'Could not open Admin Access.');
+    }
+  }
 
-  void _showAdminPasswordDialog(BuildContext context) {
-    final passwordController = TextEditingController();
-    bool obscure = true;
+  Future<void> _signIn(BuildContext context) async {
+    final email = await _readCredential(context, admin: false);
+    if (email == null || !context.mounted) return;
+    try {
+      final account = await AuthService.selectAccount(email);
+      if (!context.mounted) return;
+      if (account == null) {
+        _showError(context, 'No local account uses that email.');
+        return;
+      }
+      final destination = account.isApproved && !account.isRejected
+          ? PinScreen(accountId: account.id)
+          : PendingApprovalScreen(accountId: account.id, email: account.email);
+      Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => destination));
+    } catch (_) {
+      if (context.mounted) _showError(context, 'Could not open the account. Please try again.');
+    }
+  }
 
-    showDialog(
+  Future<String?> _readCredential(BuildContext context, {required bool admin}) {
+    var value = '';
+    var obscure = admin;
+    return showDialog<String>(
       context: context,
       builder: (context) => StatefulBuilder(
         builder: (context, setDialogState) => AlertDialog(
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-          title: const Row(
-            children: [
-              Icon(Icons.admin_panel_settings_outlined, color: Color(0xFF2D5BFF)),
-              SizedBox(width: 10),
-              Text('Admin Access'),
-            ],
-          ),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text('Enter the admin password to continue.', style: TextStyle(fontSize: 13, color: Colors.grey[600])),
-              const SizedBox(height: 16),
-              TextField(
-                controller: passwordController,
-                obscureText: obscure,
-                decoration: InputDecoration(
-                  labelText: 'Admin Password',
-                  prefixIcon: const Icon(Icons.lock_outline, color: Color(0xFF2D5BFF)),
-                  suffixIcon: IconButton(
-                    icon: Icon(obscure ? Icons.visibility_outlined : Icons.visibility_off_outlined, color: Colors.grey[400]),
-                    onPressed: () {
-                      setDialogState(() => obscure = !obscure);
-                    },
-                  ),
-                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-                  enabledBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(12),
-                    borderSide: const BorderSide(color: Color(0xFFE5E7EB)),
-                  ),
-                  focusedBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(12),
-                    borderSide: const BorderSide(color: Color(0xFF2D5BFF), width: 2),
-                  ),
-                ),
-                onSubmitted: (_) => _verifyAndNavigate(context, passwordController.text),
-              ),
-            ],
+          title: Text(admin ? 'Admin Access' : 'Sign in'),
+          content: TextField(
+            autofocus: true,
+            obscureText: obscure,
+            keyboardType: admin ? TextInputType.visiblePassword : TextInputType.emailAddress,
+            autocorrect: false,
+            onChanged: (text) => value = text,
+            onSubmitted: (text) => Navigator.pop(context, text),
+            decoration: InputDecoration(
+              labelText: admin ? 'Admin passphrase' : 'Registered email',
+              prefixIcon: Icon(admin ? Icons.lock_outline : Icons.email_outlined, color: const Color(0xFF2D5BFF)),
+              border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+              suffixIcon: admin
+                  ? IconButton(
+                      tooltip: obscure ? 'Show passphrase' : 'Hide passphrase',
+                      icon: Icon(obscure ? Icons.visibility_outlined : Icons.visibility_off_outlined),
+                      onPressed: () => setDialogState(() => obscure = !obscure),
+                    )
+                  : null,
+            ),
           ),
           actions: [
             TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
-            ElevatedButton(
-              onPressed: () => _verifyAndNavigate(context, passwordController.text),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: const Color(0xFF2D5BFF),
-                foregroundColor: Colors.white,
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-              ),
-              child: const Text('Enter'),
-            ),
+            FilledButton(onPressed: () => Navigator.pop(context, value), child: const Text('Continue')),
           ],
         ),
       ),
     );
   }
 
-  void _verifyAndNavigate(BuildContext context, String entered) {
-    if (entered == _adminPassword) {
-      Navigator.pop(context);
-
-      Navigator.push(context, MaterialPageRoute(builder: (_) => const AdminScreen()));
-    } else {
-      Navigator.pop(context);
-
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: const Text('Incorrect password'),
-          backgroundColor: Colors.red[400],
-          behavior: SnackBarBehavior.floating,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-        ),
-      );
-    }
+  void _showError(BuildContext context, String message) {
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
   }
 
   @override
@@ -197,8 +201,10 @@ class LandingScreen extends StatelessWidget {
                 ),
               ),
 
-              const SizedBox(height: 20),
+              const SizedBox(height: 8),
+              OutlinedButton(onPressed: () => _signIn(context), child: const Text('Sign in')),
 
+              const SizedBox(height: 20),
               Text(
                 'Once approved by admin, open the app\nand enter your PIN to get started.',
                 textAlign: TextAlign.center,

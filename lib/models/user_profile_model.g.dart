@@ -27,13 +27,14 @@ class UserProfileAdapter extends TypeAdapter<UserProfile> {
       ..city = fields[7] as String
       ..role = fields[8] as String
       ..isApproved = fields[9] as bool
-      ..registeredAt = fields[10] as DateTime;
+      ..registeredAt = fields[10] as DateTime
+      ..isRejected = fields[11] == null ? false : fields[11] as bool;
   }
 
   @override
   void write(BinaryWriter writer, UserProfile obj) {
     writer
-      ..writeByte(11)
+      ..writeByte(12)
       ..writeByte(0)
       ..write(obj.id)
       ..writeByte(1)
@@ -55,7 +56,9 @@ class UserProfileAdapter extends TypeAdapter<UserProfile> {
       ..writeByte(9)
       ..write(obj.isApproved)
       ..writeByte(10)
-      ..write(obj.registeredAt);
+      ..write(obj.registeredAt)
+      ..writeByte(11)
+      ..write(obj.isRejected);
   }
 
   @override

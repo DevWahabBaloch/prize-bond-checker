@@ -12,5 +12,10 @@ import UIKit
 
   func didInitializeImplicitFlutterEngine(_ engineBridge: FlutterImplicitEngineBridge) {
     GeneratedPluginRegistrant.register(with: engineBridge.pluginRegistry)
+    let channel = FlutterMethodChannel(
+      name: "prize_bond/session_privacy",
+      binaryMessenger: engineBridge.applicationRegistrar.messenger()
+    )
+    SceneDelegate.privacyChannel = channel
   }
 }

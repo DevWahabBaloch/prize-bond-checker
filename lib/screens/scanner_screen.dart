@@ -1,415 +1,417 @@
-import 'dart:io';
+import 'dart:async';
 
+import 'package:prize_bond_checking_app/models/bond_check_result.dart';
+import 'package:prize_bond_checking_app/services/bond_checking_service.dart';
 import 'package:camera/camera.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:prize_bond_checking_app/services/auth_service.dart';
 import 'package:google_mlkit_text_recognition/google_mlkit_text_recognition.dart';
-import 'package:hive_flutter/hive_flutter.dart';
 import 'package:prize_bond_checking_app/config/app_config.dart';
-import 'package:prize_bond_checking_app/models/check_record_model.dart';
-import 'package:prize_bond_checking_app/models/draw_result_model.dart';
-import 'package:prize_bond_checking_app/services/draw_service.dart';
-import 'package:prize_bond_checking_app/services/notification_service.dart';
 import 'package:prize_bond_checking_app/widgets/bond_number_extractor.dart';
 import 'package:prize_bond_checking_app/widgets/input_image_converter.dart';
 
-enum _BondCheckStatus { won, lost, invalid }
+class BondScanResult {
+  const BondScanResult({required this.number, required this.denomination, this.check});
+
+  final String number;
+  final String denomination;
+  final BondCheckResult? check;
+}
 
 class ScannerScreen extends StatefulWidget {
-  final String? initialDenomination;
+  const ScannerScreen({super.key, this.initialDenomination, this.captureOnly = false});
 
-  const ScannerScreen({super.key, this.initialDenomination});
+  final String? initialDenomination;
+  final bool captureOnly;
 
   @override
   State<ScannerScreen> createState() => _ScannerScreenState();
 }
 
+enum _ScanPhase { idle, starting, scanning, checking }
+
 class _ScannerScreenState extends State<ScannerScreen> with WidgetsBindingObserver {
-  List<CameraDescription>? _cameras;
-  CameraDescription? _backCamera;
+  static const _frameThrottle = Duration(milliseconds: 300);
+  // The installed camera plugins share native state even between scanner routes.
+  static Future<void> _cameraWork = Future.value();
+
+  late final AccountStorage _storage;
+  final _checking = BondCheckingService();
+  final _textRecognizer = TextRecognizer(script: TextRecognitionScript.latin);
   CameraController? _cameraController;
-  final TextRecognizer _textRecognizer = TextRecognizer(script: TextRecognitionScript.latin);
-
-  static const Duration _frameThrottle = Duration(milliseconds: 300);
+  Future<RecognizedText>? _recognition;
   DateTime? _lastFrameProcessedAt;
-
-  bool _isProcessingFrame = false;
-
-  bool _isDetected = false;
-
-  bool _isScanning = false;
-  bool _isInitializingCamera = false;
-  String? _scannedNumber;
+  int _attempt = 0;
+  bool _foreground = true;
+  bool _leaving = false;
   bool _isFlashOn = false;
+  var _phase = _ScanPhase.idle;
   String? _errorMessage;
-
-  final DrawService _drawService = DrawService();
   late String _selectedDenomination;
-  _BondCheckStatus? _checkStatus;
-  DrawResult? _matchedDraw;
+  BondScanResult? _scanResult;
+
+  bool get _isScanning => _phase == _ScanPhase.scanning;
+  bool get _isInitializingCamera => _phase == _ScanPhase.starting;
+  bool get _isChecking => _phase == _ScanPhase.checking;
 
   @override
   void initState() {
     super.initState();
+    _storage = AuthService.requireStorage();
     _selectedDenomination = widget.initialDenomination ?? AppConfig.defaultDenomination;
+    final state = WidgetsBinding.instance.lifecycleState;
+    _foreground = state == null || state == AppLifecycleState.resumed;
     WidgetsBinding.instance.addObserver(this);
+  }
+
+  bool _isCurrent(int attempt) => mounted && !_leaving && attempt == _attempt && AuthService.canUseStorage(_storage);
+
+  static Future<void> _withCamera(Future<void> Function() operation) {
+    final next = _cameraWork.then((_) => operation());
+    _cameraWork = next.then<void>(
+      (_) {},
+      onError: (Object error, StackTrace _) {
+        debugPrint('Camera operation failed (${error.runtimeType}).');
+      },
+    );
+    return _cameraWork;
   }
 
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
-    final controller = _cameraController;
-    _cameraController = null;
-    if (controller != null) {
-      if (controller.value.isStreamingImages) {
-        controller.stopImageStream();
-      }
-      controller.dispose();
-    }
-    _textRecognizer.close();
+    _leave();
+    unawaited(_closeRecognizer());
     super.dispose();
+  }
+
+  void _leave() {
+    if (_leaving) return;
+    _leaving = true;
+    _attempt++;
+    unawaited(_withCamera(_closeCamera));
+  }
+
+  Future<void> _closeRecognizer() async {
+    try {
+      await _recognition;
+    } catch (_) {
+      // The frame handler already handles recognition errors.
+    }
+    try {
+      await _textRecognizer.close();
+    } catch (error) {
+      debugPrint('Could not close text recognition (${error.runtimeType}).');
+    }
   }
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    final controller = _cameraController;
-    if (controller == null || !controller.value.isInitialized) return;
-
-    if (state == AppLifecycleState.inactive || state == AppLifecycleState.paused) {
-      _stopImageStream();
-    } else if (state == AppLifecycleState.resumed && _isScanning && !_isDetected) {
-      _startImageStream();
-    }
-  }
-
-  Future<bool> _ensureCameraInitialized() async {
-    final existing = _cameraController;
-    if (existing != null && existing.value.isInitialized) {
-      return true;
-    }
-
-    try {
-      _cameras ??= await availableCameras();
-      final cameras = _cameras;
-      if (cameras == null || cameras.isEmpty) {
-        _setError('No camera was found on this device.');
-        return false;
+    _foreground = state == AppLifecycleState.resumed;
+    if (_foreground) {
+      final attempt = _attempt;
+      // Permission prompts can leave an initialized camera waiting for the app to become active.
+      if (_isInitializingCamera && _cameraController?.value.isInitialized == true) {
+        unawaited(_withCamera(() => _startStream(attempt)));
       }
-
-      _backCamera = cameras.firstWhere((c) => c.lensDirection == CameraLensDirection.back, orElse: () => cameras.first);
-
-      final controller = CameraController(
-        _backCamera!,
-        ResolutionPreset.medium,
-        enableAudio: false,
-
-        imageFormatGroup: Platform.isAndroid ? ImageFormatGroup.nv21 : ImageFormatGroup.bgra8888,
-      );
-
-      await controller.initialize();
-
-      try {
-        await controller.setFocusMode(FocusMode.auto);
-      } catch (_) {}
-
-      try {
-        await controller.setFlashMode(_isFlashOn ? FlashMode.torch : FlashMode.off);
-      } catch (_) {}
-
-      _cameraController = controller;
-      return true;
-    } on CameraException catch (e) {
-      debugPrint(
-        'CameraException while initializing camera: '
-        '${e.code} — ${e.description}',
-      );
-      _setError(_cameraErrorMessage(e));
-      return false;
-    } catch (e, stackTrace) {
-      debugPrint('Unexpected error while initializing camera: $e');
-      debugPrint('$stackTrace');
-      _setError(
-        'Failed to initialize the camera. Please try again.\n'
-        '(${e.runtimeType})',
-      );
-      return false;
-    }
-  }
-
-  String _cameraErrorMessage(CameraException e) {
-    switch (e.code) {
-      case 'CameraAccessDenied':
-      case 'CameraAccessDeniedWithoutPrompt':
-      case 'CameraAccessRestricted':
-        return 'Camera permission was denied. Please enable it in your '
-            'device Settings to scan your bond.';
-      case 'cameraNotFound':
-        return 'No usable camera was found on this device.';
-      default:
-        return 'Unable to access the camera. Please try again.';
-    }
-  }
-
-  Future<void> _startImageStream() async {
-    final controller = _cameraController;
-    if (controller == null || !controller.value.isInitialized) return;
-    if (controller.value.isStreamingImages) return;
-    await controller.startImageStream(_processCameraImage);
-  }
-
-  Future<void> _stopImageStream() async {
-    final controller = _cameraController;
-    if (controller != null && controller.value.isStreamingImages) {
-      await controller.stopImageStream();
-    }
-  }
-
-  Future<void> _processCameraImage(CameraImage image) async {
-    if (!_isScanning || _isDetected || _isProcessingFrame) return;
-
-    final now = DateTime.now();
-    if (_lastFrameProcessedAt != null && now.difference(_lastFrameProcessedAt!) < _frameThrottle) {
-      return;
-    }
-    _lastFrameProcessedAt = now;
-
-    _isProcessingFrame = true;
-    try {
-      final controller = _cameraController;
-      final backCamera = _backCamera;
-      if (controller == null || backCamera == null) return;
-
-      final inputImage = InputImageConverter.fromCameraImage(image: image, controller: controller, cameraDescription: backCamera);
-      if (inputImage == null) return;
-
-      final RecognizedText recognizedText = await _textRecognizer.processImage(inputImage);
-
-      final bondNumber = BondNumberExtractor.extract(recognizedText.text);
-      if (bondNumber != null) {
-        await _handleBondNumberDetected(bondNumber);
-      }
-    } catch (e) {
-      debugPrint('OCR frame processing error: $e');
-    } finally {
-      _isProcessingFrame = false;
-    }
-  }
-
-  Future<void> _handleBondNumberDetected(String number) async {
-    if (_isDetected) return;
-    _isDetected = true;
-
-    await _stopImageStream();
-    if (!mounted) return;
-
-    setState(() => _isScanning = false);
-
-    await _evaluateAndRecordBond(number);
-  }
-
-  bool _looksLikeInvalidNumber(String number) {
-    if (number.length != 6) return true;
-    return RegExp(r'^(\d)\1{5}$').hasMatch(number);
-  }
-
-  Future<void> _evaluateAndRecordBond(String number) async {
-    if (_looksLikeInvalidNumber(number)) {
-      if (!mounted) return;
-      setState(() {
-        _scannedNumber = number;
-        _checkStatus = _BondCheckStatus.invalid;
-        _matchedDraw = null;
-      });
       return;
     }
 
-    final result = _drawService.checkBond(number, _selectedDenomination);
-
-    try {
-      if (Hive.isBoxOpen('check_history')) {
-        final record = CheckRecord()
-          ..bondNumber = number
-          ..denomination = _selectedDenomination
-          ..checkedAt = DateTime.now()
-          ..resultStatus = result != null ? 'Won' : 'No Win'
-          ..drawNumber = result?.drawNumber ?? 'N/A'
-          ..drawDate = result?.drawDate ?? 'N/A';
-        await Hive.box<CheckRecord>('check_history').add(record);
-      }
-    } catch (e) {
-      debugPrint('Failed to save scan result to check history: $e');
+    // The first camera permission prompt may make the app inactive during initialization.
+    if (state == AppLifecycleState.inactive && _isInitializingCamera && _cameraController?.value.isInitialized != true) {
+      return;
     }
-
-    if (result != null) {
-      try {
-        await NotificationService().showWinNotification(
-          bondNumber: number,
-          denomination: _selectedDenomination,
-          city: result.city,
-        );
-      } catch (e) {
-        debugPrint('Failed to show win notification: $e');
-      }
+    if (_phase != _ScanPhase.idle) {
+      _stopScanning();
     }
-
-    if (!mounted) return;
-    setState(() {
-      _scannedNumber = number;
-      _checkStatus = result != null ? _BondCheckStatus.won : _BondCheckStatus.lost;
-      _matchedDraw = result;
-    });
   }
 
   Future<void> _startScanning() async {
-    if (_isScanning || _isInitializingCamera) return;
+    if (_phase != _ScanPhase.idle || !_foreground || !_isCurrent(_attempt)) return;
 
+    final attempt = ++_attempt;
     setState(() {
+      _phase = _ScanPhase.starting;
       _errorMessage = null;
-      _scannedNumber = null;
-      _checkStatus = null;
-      _matchedDraw = null;
-      _isDetected = false;
-      _isInitializingCamera = true;
+      _scanResult = null;
+      _lastFrameProcessedAt = null;
     });
 
-    final initialized = await _ensureCameraInitialized();
-    if (!mounted) return;
+    await _withCamera(() async {
+      if (!_isCurrent(attempt)) return;
+      try {
+        final cameras = await availableCameras();
+        if (!_isCurrent(attempt)) return;
+        if (cameras.isEmpty) {
+          _failScan(attempt, 'No camera was found on this device.');
+          return;
+        }
 
-    if (!initialized) {
-      setState(() => _isInitializingCamera = false);
+        final camera = cameras.firstWhere((item) => item.lensDirection == CameraLensDirection.back, orElse: () => cameras.first);
+        final controller = CameraController(
+          camera,
+          ResolutionPreset.medium,
+          enableAudio: false,
+          imageFormatGroup: defaultTargetPlatform == TargetPlatform.android ? ImageFormatGroup.nv21 : ImageFormatGroup.bgra8888,
+        );
+        _cameraController = controller;
+        controller.addListener(() {
+          if (controller.value.hasError) _failScan(attempt, 'The camera stopped unexpectedly. Please scan again.');
+        });
+        await controller.initialize();
+
+        if (!_isCurrent(attempt)) {
+          await _closeCamera();
+          return;
+        }
+        await _startStream(attempt);
+      } on CameraException catch (error) {
+        _failScan(attempt, _cameraErrorMessage(error));
+      } catch (_) {
+        _failScan(attempt, 'Failed to initialize the camera. Please try again.');
+      }
+    });
+  }
+
+  String _cameraErrorMessage(CameraException error) => switch (error.code) {
+    'CameraAccessDenied' ||
+    'CameraAccessDeniedWithoutPrompt' ||
+    'CameraAccessRestricted' => 'Camera permission was denied. Enable it in your device settings to scan your bond.',
+    'cameraNotFound' => 'No usable camera was found on this device.',
+    _ => 'Unable to access the camera. Please try again.',
+  };
+
+  Future<void> _startStream(int attempt) async {
+    final controller = _cameraController;
+    if (controller == null || !_foreground || !_isCurrent(attempt) || !_isInitializingCamera) return;
+    try {
+      // Some cameras do not support focus or torch control, but can still scan.
+      try {
+        await controller.setFocusMode(FocusMode.auto);
+      } catch (_) {}
+      if (!_foreground || !_isCurrent(attempt)) return;
+      try {
+        await controller.setFlashMode(_isFlashOn ? FlashMode.torch : FlashMode.off);
+      } catch (_) {}
+      if (!_foreground || !_isCurrent(attempt)) return;
+      if (!controller.supportsImageStreaming()) {
+        _failScan(attempt, 'This camera cannot stream images for scanning.');
+        return;
+      }
+      await _listenForFrames(controller, attempt);
+      if (_foreground && _isCurrent(attempt)) setState(() => _phase = _ScanPhase.scanning);
+    } catch (_) {
+      _failScan(attempt, 'Could not start the camera stream. Please try again.');
+    }
+  }
+
+  Future<void> _listenForFrames(CameraController controller, int attempt) {
+    final started = Completer<void>();
+    final appZone = Zone.current;
+    // Both mobile plugins can fail in an asynchronous stream onListen callback.
+    // Keep those errors in this attempt, and deliver frame handling back to the app's zone.
+    runZonedGuarded(() async {
+      try {
+        await controller.startImageStream((image) {
+          appZone.run(() => unawaited(_processCameraImage(image, controller, attempt)));
+        });
+        started.complete();
+      } catch (error, stackTrace) {
+        started.completeError(error, stackTrace);
+      }
+    }, (error, _) => _failScan(attempt, 'The camera stream stopped. Please try again.'));
+    return started.future;
+  }
+
+  Future<void> _closeCamera() async {
+    final controller = _cameraController;
+    _cameraController = null;
+    if (controller == null) return;
+    try {
+      if (controller.value.isStreamingImages) await controller.stopImageStream();
+    } catch (error) {
+      debugPrint('Could not stop the camera stream (${error.runtimeType}).');
+    } finally {
+      try {
+        await controller.dispose();
+      } catch (error) {
+        debugPrint('Could not release the camera (${error.runtimeType}).');
+      }
+    }
+  }
+
+  void _stopScanning() {
+    _attempt++;
+    setState(() => _phase = _ScanPhase.idle);
+    unawaited(_withCamera(_closeCamera));
+  }
+
+  void _failScan(int attempt, String message) {
+    if (!_isCurrent(attempt)) return;
+    setState(() => _errorMessage = message);
+    _stopScanning();
+  }
+
+  Future<void> _processCameraImage(CameraImage image, CameraController controller, int attempt) async {
+    if (!_foreground || !_isCurrent(attempt) || !_isScanning || _recognition != null) return;
+
+    final now = DateTime.now();
+    final lastFrame = _lastFrameProcessedAt;
+    if (lastFrame != null && now.difference(lastFrame) < _frameThrottle) return;
+    _lastFrameProcessedAt = now;
+
+    final input = InputImageConverter.fromCameraImage(
+      image: image,
+      controller: controller,
+      cameraDescription: controller.description,
+    );
+    if (input == null) {
+      _failScan(attempt, 'The camera sent an unsupported image. Please scan again.');
       return;
     }
 
-    await _startImageStream();
-    if (!mounted) return;
+    String? number;
+    try {
+      final recognition = _textRecognizer.processImage(input);
+      _recognition = recognition;
+      number = BondNumberExtractor.extract((await recognition).text);
+    } catch (_) {
+      _failScan(attempt, 'Could not read the bond number. Please scan again.');
+    } finally {
+      _recognition = null;
+    }
 
-    setState(() {
-      _isInitializingCamera = false;
-      _isScanning = true;
-    });
+    if (number != null && _foreground && _isCurrent(attempt)) {
+      await _finishScan(number, _selectedDenomination, attempt);
+    }
   }
 
-  Future<void> _stopScanning() async {
-    await _stopImageStream();
-    if (!mounted) return;
-    setState(() => _isScanning = false);
-  }
+  Future<void> _finishScan(String number, String denomination, int attempt) async {
+    setState(() => _phase = _ScanPhase.checking);
+    await _withCamera(_closeCamera);
+    if (!_foreground || !_isCurrent(attempt)) return;
 
-  void _resetAndRescan() {
-    setState(() {
-      _scannedNumber = null;
-      _checkStatus = null;
-      _matchedDraw = null;
-      _isDetected = false;
-    });
-    _startScanning();
+    try {
+      final check = widget.captureOnly ? null : await _checking.check(_storage, number, denomination);
+      if (!_foreground || !_isCurrent(attempt)) return;
+      setState(() {
+        _scanResult = BondScanResult(number: number, denomination: denomination, check: check);
+        _phase = _ScanPhase.idle;
+      });
+    } catch (_) {
+      _failScan(attempt, 'Could not save the check. Please scan again.');
+    }
   }
 
   Future<void> _toggleFlash() async {
-    final controller = _cameraController;
+    final attempt = _attempt;
+    if (!_foreground || !_isCurrent(attempt)) return;
     final newValue = !_isFlashOn;
-
-    if (controller == null || !controller.value.isInitialized) {
+    if (_cameraController == null) {
       setState(() => _isFlashOn = newValue);
       return;
     }
-
-    try {
-      await controller.setFlashMode(newValue ? FlashMode.torch : FlashMode.off);
-      setState(() => _isFlashOn = newValue);
-    } catch (e) {
-      debugPrint('Unable to toggle flash: $e');
-    }
-  }
-
-  void _setError(String message) {
-    if (!mounted) return;
-    setState(() {
-      _errorMessage = message;
-      _isScanning = false;
+    await _withCamera(() async {
+      final controller = _cameraController;
+      if (controller == null || !_foreground || !_isCurrent(attempt)) return;
+      try {
+        await controller.setFlashMode(newValue ? FlashMode.torch : FlashMode.off);
+        if (_foreground && _isCurrent(attempt)) setState(() => _isFlashOn = newValue);
+      } catch (_) {
+        if (_foreground && _isCurrent(attempt)) {
+          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Flash is unavailable on this camera.')));
+        }
+      }
     });
   }
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: Colors.black,
-      appBar: AppBar(
-        backgroundColor: Colors.transparent,
-        elevation: 0,
-        leading: IconButton(
-          icon: const Icon(Icons.close, color: Colors.white),
-          onPressed: () => Navigator.pop(context),
-        ),
-        title: const Text('Scan Prize Bond', style: TextStyle(color: Colors.white)),
-        actions: [
-          IconButton(
-            icon: Icon(_isFlashOn ? Icons.flash_on : Icons.flash_off, color: Colors.white),
-            onPressed: _toggleFlash,
+    return PopScope<BondScanResult>(
+      onPopInvokedWithResult: (didPop, _) {
+        if (didPop) _leave();
+      },
+      child: Scaffold(
+        backgroundColor: Colors.black,
+        appBar: AppBar(
+          backgroundColor: Colors.transparent,
+          elevation: 0,
+          leading: IconButton(
+            icon: const Icon(Icons.close, color: Colors.white),
+            onPressed: () => Navigator.pop(context),
           ),
-        ],
-      ),
-      body: Stack(
-        children: [
-          Container(
-            decoration: const BoxDecoration(
-              gradient: LinearGradient(
-                colors: [Color(0xFF1F2937), Color(0xFF111827)],
-                begin: Alignment.topCenter,
-                end: Alignment.bottomCenter,
-              ),
+          title: const Text('Scan Prize Bond', style: TextStyle(color: Colors.white)),
+          actions: [
+            IconButton(
+              icon: Icon(_isFlashOn ? Icons.flash_on : Icons.flash_off, color: Colors.white),
+              onPressed: _toggleFlash,
             ),
-            child: Center(
-              child: SingleChildScrollView(
-                padding: const EdgeInsets.symmetric(vertical: 24),
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    _buildDenominationPicker(),
-                    const SizedBox(height: 16),
-                    Container(
-                      width: 300,
-                      height: 200,
-                      decoration: BoxDecoration(
-                        border: Border.all(color: _isScanning ? const Color(0xFF2D5BFF) : Colors.white, width: 3),
-                        borderRadius: BorderRadius.circular(16),
+          ],
+        ),
+        body: Stack(
+          children: [
+            Container(
+              decoration: const BoxDecoration(
+                gradient: LinearGradient(
+                  colors: [Color(0xFF1F2937), Color(0xFF111827)],
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                ),
+              ),
+              child: Center(
+                child: SingleChildScrollView(
+                  padding: const EdgeInsets.symmetric(vertical: 24),
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      _buildDenominationPicker(),
+                      const SizedBox(height: 16),
+                      Container(
+                        width: 300,
+                        height: 200,
+                        decoration: BoxDecoration(
+                          border: Border.all(color: _isScanning ? const Color(0xFF2D5BFF) : Colors.white, width: 3),
+                          borderRadius: BorderRadius.circular(16),
+                        ),
+                        child: ClipRRect(
+                          borderRadius: BorderRadius.circular(13),
+                          child: (_isScanning || _isInitializingCamera || _errorMessage != null)
+                              ? _buildScanningView()
+                              : const Center(child: Icon(Icons.document_scanner_outlined, size: 80, color: Colors.white54)),
+                        ),
                       ),
-                      child: ClipRRect(
-                        borderRadius: BorderRadius.circular(13),
-                        child: (_isScanning || _isInitializingCamera || _errorMessage != null)
-                            ? _buildScanningView()
-                            : const Center(child: Icon(Icons.document_scanner_outlined, size: 80, color: Colors.white54)),
+                      const SizedBox(height: 24),
+                      Text(
+                        _errorMessage ??
+                            (_isScanning ? 'Point at the bond number to scan...' : 'Position bond number within frame'),
+                        textAlign: TextAlign.center,
+                        style: const TextStyle(color: Colors.white, fontSize: 16),
                       ),
-                    ),
-                    const SizedBox(height: 24),
-                    Text(
-                      _errorMessage ??
-                          (_isScanning ? 'Point at the bond number to scan...' : 'Position bond number within frame'),
-                      textAlign: TextAlign.center,
-                      style: const TextStyle(color: Colors.white, fontSize: 16),
-                    ),
-                    if (_isScanning) ...[
-                      const SizedBox(height: 12),
-                      TextButton.icon(
-                        onPressed: _stopScanning,
-                        icon: const Icon(Icons.stop_circle_outlined, color: Colors.white60),
-                        label: const Text('Cancel Scan', style: TextStyle(color: Colors.white60)),
-                      ),
+                      if (_isScanning) ...[
+                        const SizedBox(height: 12),
+                        TextButton.icon(
+                          onPressed: _stopScanning,
+                          icon: const Icon(Icons.stop_circle_outlined, color: Colors.white60),
+                          label: const Text('Cancel Scan', style: TextStyle(color: Colors.white60)),
+                        ),
+                      ],
+                      if (_scanResult != null) ...[const SizedBox(height: 24), _buildResultCard()],
+                      const SizedBox(height: 90),
                     ],
-                    if (_scannedNumber != null) ...[const SizedBox(height: 24), _buildResultCard()],
-                    const SizedBox(height: 90),
-                  ],
+                  ),
                 ),
               ),
             ),
-          ),
-          Positioned(bottom: 40, left: 0, right: 0, child: Center(child: _buildBottomAction())),
-        ],
+            Positioned(bottom: 40, left: 0, right: 0, child: Center(child: _buildBottomAction())),
+          ],
+        ),
       ),
     );
   }
 
   Widget _buildDenominationPicker() {
-    final locked = _isScanning || _isInitializingCamera;
+    final locked = _isScanning || _isInitializingCamera || _isChecking || _scanResult != null;
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 2),
       decoration: BoxDecoration(
@@ -422,7 +424,7 @@ class _ScannerScreenState extends State<ScannerScreen> with WidgetsBindingObserv
         children: [
           const Icon(Icons.monetization_on_outlined, color: Colors.white70, size: 16),
           const SizedBox(width: 6),
-          const Text('Checking:', style: TextStyle(color: Colors.white60, fontSize: 12)),
+          Text(widget.captureOnly ? 'Denomination:' : 'Checking:', style: const TextStyle(color: Colors.white60, fontSize: 12)),
           const SizedBox(width: 6),
           DropdownButton<String>(
             value: _selectedDenomination,
@@ -490,43 +492,36 @@ class _ScannerScreenState extends State<ScannerScreen> with WidgetsBindingObserv
   }
 
   Widget _buildResultCard() {
-    switch (_checkStatus) {
-      case _BondCheckStatus.won:
-        final draw = _matchedDraw;
-        final position = draw != null ? _drawService.getPrizePosition(draw, _scannedNumber!) : null;
-        final amount = draw != null ? _drawService.getPrizeAmount(draw, _scannedNumber!) : null;
-        return _resultContainer(
-          color: const Color(0xFF10B981),
-          icon: Icons.emoji_events,
-          title: '🎉 This Bond Won!',
-          number: _scannedNumber!,
-          subtitleLines: [
-            if (position != null) '$position${amount != null ? ' — $amount' : ''}',
-            if (draw != null) 'Draw #${draw.drawNumber} • ${draw.drawDate}',
-          ],
-        );
-
-      case _BondCheckStatus.lost:
-        return _resultContainer(
-          color: const Color(0xFFF59E0B),
-          icon: Icons.sentiment_neutral_rounded,
-          title: 'No Win',
-          number: _scannedNumber!,
-          subtitleLines: const ['Checked against completed draws — no match found.'],
-        );
-
-      case _BondCheckStatus.invalid:
-        return _resultContainer(
-          color: const Color(0xFFEF4444),
-          icon: Icons.error_outline_rounded,
-          title: 'Wrong / Unreadable Number',
-          number: _scannedNumber!,
-          subtitleLines: const ["This doesn't look like a valid bond number. Please rescan."],
-        );
-
-      case null:
-        return const SizedBox.shrink();
-    }
+    final scan = _scanResult!;
+    final result = scan.check;
+    final win = result?.win;
+    return switch (result?.outcome) {
+      BondCheckOutcome.win => _resultContainer(
+        color: const Color(0xFF10B981),
+        icon: Icons.emoji_events,
+        title: '🎉 This Bond Won!',
+        number: result!.number,
+        subtitleLines: [
+          '${win!.position} • ${win.amount}',
+          'Draw #${win.drawNumber} • ${win.drawDate}',
+          AppConfig.simulatedResultsLabel,
+        ],
+      ),
+      BondCheckOutcome.noWin || BondCheckOutcome.resultsUnavailable => _resultContainer(
+        color: const Color(0xFF92400E),
+        icon: Icons.info_outline,
+        title: result!.outcome.label,
+        number: result.number,
+        subtitleLines: [AppConfig.simulatedResultsLabel, result.coverage.summary],
+      ),
+      null => _resultContainer(
+        color: const Color(0xFF2D5BFF),
+        icon: Icons.check_circle_outline,
+        title: 'Number captured',
+        number: scan.number,
+        subtitleLines: [scan.denomination],
+      ),
+    };
   }
 
   Widget _resultContainer({
@@ -568,37 +563,34 @@ class _ScannerScreenState extends State<ScannerScreen> with WidgetsBindingObserv
   }
 
   Widget _buildBottomAction() {
-    if (_scannedNumber == null) {
+    final scan = _scanResult;
+    if (scan == null) {
+      final busy = _isScanning || _isInitializingCamera || _isChecking;
+      final label = _isChecking
+          ? 'Checking...'
+          : _isInitializingCamera
+          ? 'Starting camera...'
+          : _isScanning
+          ? 'Scanning...'
+          : 'Scan Now';
       return FloatingActionButton.extended(
-        onPressed: (_isScanning || _isInitializingCamera) ? null : _startScanning,
+        onPressed: busy ? null : _startScanning,
         backgroundColor: Colors.white,
-        icon: Icon((_isScanning || _isInitializingCamera) ? Icons.hourglass_empty : Icons.camera),
-        label: Text(_isInitializingCamera ? 'Starting camera...' : (_isScanning ? 'Scanning...' : 'Scan Now')),
-      );
-    }
-
-    if (_checkStatus == _BondCheckStatus.invalid) {
-      return ElevatedButton.icon(
-        onPressed: _resetAndRescan,
-        icon: const Icon(Icons.refresh),
-        label: const Text('Scan Again'),
-        style: ElevatedButton.styleFrom(
-          backgroundColor: const Color(0xFF2D5BFF),
-          foregroundColor: Colors.white,
-          padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 16),
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-        ),
+        icon: Icon(busy ? Icons.hourglass_empty : Icons.camera),
+        label: Text(label),
       );
     }
 
     return ElevatedButton(
-      onPressed: () => Navigator.pop(context, _scannedNumber),
+      onPressed: () {
+        if (_foreground && _isCurrent(_attempt)) Navigator.pop(context, scan);
+      },
       style: ElevatedButton.styleFrom(
         backgroundColor: const Color(0xFF10B981),
         padding: const EdgeInsets.symmetric(horizontal: 40, vertical: 16),
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       ),
-      child: const Text('Back', style: TextStyle(color: Colors.white)),
+      child: Text(widget.captureOnly ? 'Use scanned number' : 'Back', style: const TextStyle(color: Colors.white)),
     );
   }
 }

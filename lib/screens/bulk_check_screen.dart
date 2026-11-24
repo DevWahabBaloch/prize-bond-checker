@@ -1,141 +1,354 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:file_picker/file_picker.dart';
+import 'package:prize_bond_checking_app/config/app_config.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-import 'package:hive_flutter/hive_flutter.dart';
-import 'package:prize_bond_checking_app/models/check_record_model.dart';
-import 'package:prize_bond_checking_app/models/draw_result_model.dart';
-import 'package:prize_bond_checking_app/services/draw_service.dart';
-import 'package:prize_bond_checking_app/services/notification_service.dart';
+import 'package:prize_bond_checking_app/models/bond_check_result.dart';
+import 'package:prize_bond_checking_app/services/android_bulk_import.dart';
+import 'package:prize_bond_checking_app/services/auth_service.dart';
+import 'package:prize_bond_checking_app/services/bond_checking_service.dart';
 import 'package:prize_bond_checking_app/widgets/bond_number_extractor.dart';
 
 class BulkCheckScreen extends StatefulWidget {
   final String denomination;
+  final bool restorePendingImport;
 
-  const BulkCheckScreen({super.key, required this.denomination});
+  const BulkCheckScreen({super.key, required this.denomination, this.restorePendingImport = false});
 
   @override
   State<BulkCheckScreen> createState() => _BulkCheckScreenState();
 }
 
 class _BulkCheckScreenState extends State<BulkCheckScreen> {
+  late final _storage = AuthService.requireStorage();
+
+  static const _maxInputBytes = 256 * 1024;
+  static const _maxEntries = 1000;
+  static const _sizeError = 'Use at most 256 KiB of TXT, CSV, or pasted input per batch.';
+
   final TextEditingController _pasteController = TextEditingController();
-  final DrawService _drawService = DrawService();
+  final _checking = BondCheckingService();
   bool _isChecking = false;
+  bool _isPicking = false;
   String? _fileName;
   String? _fileContent;
   List<_BulkCheckResult> _results = [];
+  List<String>? _interruptedTokens;
+  StreamSubscription<int>? _pickerEvents;
+  int? _androidRequest;
+  (int, String)? _appliedReceipt;
+  bool _awaitingPicker = false;
+  bool _loadingReceipt = false;
+  bool _reloadReceipt = false;
+
+  @override
+  void initState() {
+    super.initState();
+    if (!AndroidBulkImport.supported) return;
+    _pickerEvents = AndroidBulkImport.instance.changes.listen((request) {
+      if (_androidRequest != request) return;
+      _awaitingPicker = false;
+      unawaited(_restoreAndroidImport());
+    });
+    if (widget.restorePendingImport) {
+      _isPicking = true;
+      WidgetsBinding.instance.addPostFrameCallback((_) => unawaited(_restoreAndroidImport()));
+    }
+  }
 
   @override
   void dispose() {
+    unawaited(_pickerEvents?.cancel());
     _pasteController.dispose();
     super.dispose();
   }
 
-  Future<void> _pickFile() async {
-    final picked = await FilePicker.pickFiles(type: FileType.custom, allowedExtensions: ['txt', 'csv'], withData: true);
-    if (picked == null || picked.files.isEmpty) return;
+  bool get _isActive => mounted && AuthService.canUseStorage(_storage) && (ModalRoute.of(context)?.isCurrent ?? true);
 
-    final file = picked.files.single;
-    String content;
-    if (file.bytes != null) {
-      content = utf8.decode(file.bytes!);
-    } else if (file.path != null) {
-      content = await File(file.path!).readAsString();
-    } else {
-      if (!mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('Unable to read selected file'), backgroundColor: Color(0xFFEF4444)));
+  Future<void> _pickFile() async {
+    if (_isPicking || _isChecking || !_isActive) return;
+    if (AndroidBulkImport.supported) {
+      await _pickAndroidFile();
       return;
     }
+    setState(() => _isPicking = true);
+    try {
+      final picked = await FilePicker.pickFiles(
+        type: FileType.custom,
+        allowedExtensions: ['txt', 'csv'],
+        withReadStream: true,
+      );
+      if (!_isActive || picked == null || picked.files.isEmpty) return;
+      final file = picked.files.single;
+      final content = await _readFile(file);
+      if (_isActive && content != null) {
+        setState(() {
+          _fileName = file.name;
+          _fileContent = content;
+        });
+      }
+    } on FormatException catch (error) {
+      if (_isActive) _showInputError(error.message);
+    } catch (_) {
+      if (_isActive) _showInputError('Could not read the selected file. Choose a local TXT or CSV file and try again.');
+    } finally {
+      if (mounted) setState(() => _isPicking = false);
+    }
+  }
 
+  Future<void> _pickAndroidFile() async {
+    final paste = _pasteController.text;
+    if (paste.length > _maxInputBytes || utf8.encode(paste).length > _maxInputBytes) {
+      _showInputError(_sizeError);
+      return;
+    }
+    setState(() => _isPicking = true);
+    _awaitingPicker = true;
+    try {
+      final request = await AndroidBulkImport.instance.open(
+        _storage,
+        denomination: widget.denomination,
+        paste: paste,
+        fileName: _fileName,
+        fileContent: _fileContent,
+      );
+      if (!_isActive) return;
+      if (request == null) throw StateError('No Android picker request');
+      _androidRequest = request;
+    } catch (_) {
+      if (!_isActive) return;
+      _awaitingPicker = false;
+      setState(() => _isPicking = false);
+      _showInputError('Could not open the file picker. Please try again.');
+      return;
+    }
+    await _restoreAndroidImport();
+  }
+
+  Future<void> _restoreAndroidImport() async {
+    if (!_isActive) return;
+    if (_loadingReceipt) {
+      _reloadReceipt = true;
+      return;
+    }
+    _loadingReceipt = true;
+    try {
+      final receipt = await AndroidBulkImport.instance.load(_storage);
+      if (!_isActive) return;
+      if (receipt == null) {
+        _awaitingPicker = false;
+        setState(() => _isPicking = false);
+        return;
+      }
+      if (receipt.status == 'picking' && _awaitingPicker) return;
+      final version = (receipt.request, receipt.status);
+      if (_appliedReceipt == version) return;
+      _appliedReceipt = version;
+      _androidRequest = receipt.request;
+      _awaitingPicker = false;
+      final error = _applyAndroidReceipt(receipt);
+      if (error != null) _showInputError(error);
+    } catch (_) {
+      if (_isActive) {
+        _awaitingPicker = false;
+        setState(() => _isPicking = false);
+        _showInputError('Could not restore the file selection. Please choose the file again.');
+      }
+    } finally {
+      _loadingReceipt = false;
+      if (_reloadReceipt) {
+        _reloadReceipt = false;
+        unawaited(_restoreAndroidImport());
+      }
+    }
+  }
+
+  String? _applyAndroidReceipt(AndroidBulkImportReceipt receipt) {
+    var name = receipt.fileName;
+    var content = receipt.fileContent;
+    var error = switch (receipt.status) {
+      'picking' => 'File selection was interrupted. Choose the file again.',
+      'failed' => 'Could not read the selected file. Choose a local TXT or CSV file and try again.',
+      _ => receipt.error,
+    };
+    if (receipt.selectedName case final selectedName?) {
+      try {
+        content = utf8.decode(receipt.selectedBytes!);
+        name = selectedName;
+      } on FormatException {
+        error = 'Use a UTF-8 TXT or CSV file.';
+      }
+    }
     setState(() {
-      _fileName = file.name;
+      _pasteController.text = receipt.paste;
+      _fileName = name;
       _fileContent = content;
+      _isPicking = false;
     });
+    return error;
+  }
+
+  Future<void> _clearPendingImport() async {
+    if (_androidRequest case final request?) {
+      await AndroidBulkImport.instance.clear(_storage, request);
+      if (_androidRequest == request) _androidRequest = null;
+    }
+  }
+
+  Future<void> _discardOnBack() async {
+    try {
+      if (_androidRequest != null) await _clearPendingImport();
+    } catch (error) {
+      debugPrint('Could not discard the bulk import (${error.runtimeType}).');
+    }
+  }
+
+  Future<String?> _readFile(PlatformFile file) async {
+    if (file.size > _maxInputBytes) throw const FormatException(_sizeError);
+    final stream =
+        file.readStream ??
+        (file.path != null ? File(file.path!).openRead() : null) ??
+        (file.bytes != null ? Stream.value(file.bytes!) : null);
+    if (stream == null) throw const FormatException('Could not read the selected file.');
+
+    final bytes = BytesBuilder(copy: false);
+    await for (final chunk in stream) {
+      if (!_isActive) return null;
+      if (chunk.length > _maxInputBytes - bytes.length) throw const FormatException(_sizeError);
+      bytes.add(chunk);
+    }
+    try {
+      return utf8.decode(bytes.takeBytes());
+    } on FormatException {
+      throw const FormatException('Use a UTF-8 TXT or CSV file.');
+    }
+  }
+
+  void _showInputError(String message) {
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(message), backgroundColor: const Color(0xFFEF4444)));
   }
 
   List<String> _parseTokens(String content) {
-    return content.split(RegExp(r'[\r\n,]+')).map((token) => token.trim()).where((token) => token.isNotEmpty).toList();
+    final tokens = <String>{};
+    var entries = 0;
+
+    void addField(int start, int end) {
+      var token = content.substring(start, end).trim();
+      if (token.isEmpty) return;
+      if (++entries > _maxEntries) throw const FormatException('Use at most 1,000 entries per batch.');
+      if (token.length == 8 && token.startsWith('"') && token.endsWith('"')) {
+        final unquoted = token.substring(1, 7);
+        if (BondNumberExtractor.isValidBondNumber(unquoted)) token = unquoted;
+      }
+      tokens.add(token);
+    }
+
+    var start = content.startsWith('\uFEFF') ? 1 : 0;
+    var quoted = false;
+    for (var index = start; index < content.length; index++) {
+      switch (content.codeUnitAt(index)) {
+        case 34: // Double quote.
+          quoted = !quoted;
+        case 44 || 13 || 10: // Comma, CR, LF.
+          if (!quoted) {
+            addField(start, index);
+            start = index + 1;
+          }
+      }
+    }
+    addField(start, content.length);
+    return tokens.toList();
   }
 
   Future<void> _checkAll() async {
-    final combined = [_fileContent, _pasteController.text].whereType<String>().where((part) => part.trim().isNotEmpty).join('\n');
-    final tokens = _parseTokens(combined);
-
-    if (tokens.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Pick a file or paste bond numbers first'), backgroundColor: Color(0xFFEF4444)),
-      );
+    if (_isPicking || _isChecking || !_isActive) return;
+    final parts = [_fileContent, _pasteController.text].whereType<String>().where((part) => part.isNotEmpty);
+    final combined = parts.join('\n');
+    final List<String> tokens;
+    try {
+      if (combined.length > _maxInputBytes || utf8.encode(combined).length > _maxInputBytes) {
+        throw const FormatException(_sizeError);
+      }
+      tokens = _parseTokens(combined);
+      if (tokens.isEmpty) throw const FormatException('Pick a file or paste bond numbers first.');
+    } on FormatException catch (error) {
+      _showInputError(error.message);
       return;
     }
 
+    final resuming = listEquals(_interruptedTokens, tokens);
+    final nextResults = resuming ? [..._results] : <_BulkCheckResult>[];
     setState(() {
       _isChecking = true;
-      _results = [];
+      if (!resuming) _results = [];
     });
 
-    final nextResults = <_BulkCheckResult>[];
-    for (final token in tokens) {
-      if (!BondNumberExtractor.isValidBondNumber(token)) {
-        nextResults.add(_BulkCheckResult.invalid(token));
-        continue;
+    try {
+      // Only an explicit Check All starts processing. Consume the handoff before
+      // applying any results so it cannot be offered again after a restart.
+      await _clearPendingImport();
+      for (final token in tokens.skip(nextResults.length)) {
+        if (!_isActive) return;
+        if (!BondNumberExtractor.isValidBondNumber(token)) {
+          nextResults.add(_BulkCheckResult(token));
+          continue;
+        }
+        final result = await _checking.check(_storage, token, widget.denomination);
+        nextResults.add(_BulkCheckResult(token, result));
       }
-
-      final draw = _drawService.checkBond(token, widget.denomination);
-      await _drawService.updateSavedBondAfterCheck(number: token, denomination: widget.denomination, result: draw);
-
-      final record = CheckRecord()
-        ..bondNumber = token
-        ..denomination = widget.denomination
-        ..checkedAt = DateTime.now()
-        ..resultStatus = draw != null ? 'Won' : 'No Win'
-        ..drawNumber = draw?.drawNumber ?? 'N/A'
-        ..drawDate = draw?.drawDate ?? 'N/A';
-      await Hive.box<CheckRecord>('check_history').add(record);
-
-      if (draw != null) {
-        await NotificationService().showWinNotification(bondNumber: token, denomination: widget.denomination, city: draw.city);
+      _interruptedTokens = null;
+    } catch (_) {
+      _interruptedTokens = tokens;
+      if (_isActive) {
+        _showInputError(
+          'Batch stopped after ${nextResults.length} of ${tokens.length} entries. Tap Check All to retry.',
+        );
       }
-
-      nextResults.add(_BulkCheckResult.checked(token, draw));
+    } finally {
+      if (_isActive) {
+        setState(() {
+          _results = nextResults;
+          _isChecking = false;
+        });
+      }
     }
-
-    if (!mounted) return;
-    setState(() {
-      _results = nextResults;
-      _isChecking = false;
-    });
   }
 
-  int get _validCount => _results.where((result) => !result.skipped).length;
-  int get _winCount => _results.where((result) => result.draw != null).length;
-  int get _skippedCount => _results.where((result) => result.skipped).length;
-  int get _noWinCount => _validCount - _winCount;
+  int _count(BondCheckOutcome outcome) => _results.where((row) => row.check?.outcome == outcome).length;
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: const Color(0xFFFAFBFC),
-      body: Column(
-        children: [
-          _buildHeader(),
-          Expanded(
-            child: ListView(
-              padding: const EdgeInsets.all(20),
-              children: [
-                _buildInputCard(),
-                const SizedBox(height: 20),
-                if (_results.isNotEmpty) _buildResultsSummary(),
-                if (_results.isNotEmpty) const SizedBox(height: 12),
-                ..._results.map(_buildResultRow),
-                const SizedBox(height: 24),
-              ],
+    final headerCount = _results.isEmpty ? 1 : 2;
+    return PopScope(
+      onPopInvokedWithResult: (didPop, _) {
+        if (didPop && _androidRequest != null) unawaited(_discardOnBack());
+      },
+      child: Scaffold(
+        backgroundColor: const Color(0xFFFAFBFC),
+        body: Column(
+          children: [
+            _buildHeader(),
+            Expanded(
+              child: ListView.builder(
+                padding: const EdgeInsets.fromLTRB(20, 20, 20, 44),
+                itemCount: headerCount + _results.length,
+                itemBuilder: (context, index) {
+                  if (index == 0) return _buildInputCard();
+                  if (index < headerCount) {
+                    return Padding(padding: const EdgeInsets.only(top: 20, bottom: 12), child: _buildResultsSummary());
+                  }
+                  return _buildResultRow(_results[index - headerCount]);
+                },
+              ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
@@ -198,7 +411,7 @@ class _BulkCheckScreenState extends State<BulkCheckScreen> {
           SizedBox(
             width: double.infinity,
             child: OutlinedButton.icon(
-              onPressed: _isChecking ? null : _pickFile,
+              onPressed: _isChecking || _isPicking ? null : _pickFile,
               icon: const Icon(Icons.upload_file),
               label: Text(_fileName == null ? 'Pick TXT or CSV File' : _fileName!),
               style: OutlinedButton.styleFrom(
@@ -212,6 +425,7 @@ class _BulkCheckScreenState extends State<BulkCheckScreen> {
           const SizedBox(height: 16),
           TextField(
             controller: _pasteController,
+            enabled: !_isChecking && !_isPicking,
             maxLines: 6,
             keyboardType: TextInputType.multiline,
             decoration: InputDecoration(
@@ -226,9 +440,13 @@ class _BulkCheckScreenState extends State<BulkCheckScreen> {
           SizedBox(
             width: double.infinity,
             child: ElevatedButton.icon(
-              onPressed: _isChecking ? null : _checkAll,
+              onPressed: _isChecking || _isPicking ? null : _checkAll,
               icon: _isChecking
-                  ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                  ? const SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                    )
                   : const Icon(Icons.checklist_rtl),
               label: Text(_isChecking ? 'Checking...' : 'Check All'),
               style: ElevatedButton.styleFrom(
@@ -258,7 +476,9 @@ class _BulkCheckScreenState extends State<BulkCheckScreen> {
           const SizedBox(width: 12),
           Expanded(
             child: Text(
-              '$_validCount checked - $_winCount wins - $_noWinCount no win - $_skippedCount skipped',
+              '${AppConfig.simulatedResultsLabel}\n'
+              '${_count(BondCheckOutcome.win)} wins • ${_count(BondCheckOutcome.noWin)} no win • '
+              '${_count(BondCheckOutcome.resultsUnavailable)} unavailable • ${_results.where((row) => row.skipped).length} skipped',
               style: const TextStyle(fontWeight: FontWeight.w700, color: Color(0xFF1F2937)),
             ),
           ),
@@ -268,7 +488,9 @@ class _BulkCheckScreenState extends State<BulkCheckScreen> {
   }
 
   Widget _buildResultRow(_BulkCheckResult result) {
-    final isWin = result.draw != null;
+    final check = result.check;
+    final win = check?.win;
+    final isWin = win != null;
     final color = result.skipped
         ? const Color(0xFFEF4444)
         : isWin
@@ -280,16 +502,12 @@ class _BulkCheckScreenState extends State<BulkCheckScreen> {
         ? const Color(0xFFD1FAE5)
         : const Color(0xFFF3F4F6);
 
-    String subtitle;
-    if (result.skipped) {
-      subtitle = 'Invalid token skipped';
-    } else if (result.draw != null) {
-      final position = _drawService.getPrizePosition(result.draw!, result.number) ?? 'Prize';
-      final amount = _drawService.getPrizeAmount(result.draw!, result.number) ?? '';
-      subtitle = '$position $amount - Draw #${result.draw!.drawNumber}';
-    } else {
-      subtitle = 'No match in completed draws';
-    }
+    final subtitle = switch (check?.outcome) {
+      BondCheckOutcome.win => 'Won • ${win!.position} ${win.amount} • Draw #${win.drawNumber}',
+      BondCheckOutcome.noWin => 'No Win • ${check!.coverage.summary}',
+      BondCheckOutcome.resultsUnavailable => 'Results Unavailable • ${check!.coverage.summary}',
+      null => 'Invalid token skipped',
+    };
 
     return Container(
       margin: const EdgeInsets.only(bottom: 10),
@@ -297,7 +515,10 @@ class _BulkCheckScreenState extends State<BulkCheckScreen> {
       decoration: BoxDecoration(color: bg, borderRadius: BorderRadius.circular(14)),
       child: Row(
         children: [
-          Icon(result.skipped ? Icons.error_outline : (isWin ? Icons.emoji_events : Icons.remove_circle_outline), color: color),
+          Icon(
+            result.skipped ? Icons.error_outline : (isWin ? Icons.emoji_events : Icons.remove_circle_outline),
+            color: color,
+          ),
           const SizedBox(width: 12),
           Expanded(
             child: Column(
@@ -305,6 +526,8 @@ class _BulkCheckScreenState extends State<BulkCheckScreen> {
               children: [
                 Text(
                   result.number,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
                   style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, fontFamily: 'monospace', color: color),
                 ),
                 const SizedBox(height: 2),
@@ -319,17 +542,10 @@ class _BulkCheckScreenState extends State<BulkCheckScreen> {
 }
 
 class _BulkCheckResult {
+  const _BulkCheckResult(this.number, [this.check]);
+
   final String number;
-  final DrawResult? draw;
-  final bool skipped;
+  final BondCheckResult? check;
 
-  const _BulkCheckResult._({required this.number, required this.draw, required this.skipped});
-
-  factory _BulkCheckResult.checked(String number, DrawResult? draw) {
-    return _BulkCheckResult._(number: number, draw: draw, skipped: false);
-  }
-
-  factory _BulkCheckResult.invalid(String token) {
-    return _BulkCheckResult._(number: token, draw: null, skipped: true);
-  }
+  bool get skipped => check == null;
 }

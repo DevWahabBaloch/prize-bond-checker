@@ -1,11 +1,10 @@
+import 'package:prize_bond_checking_app/models/bond_check_result.dart';
+import 'package:prize_bond_checking_app/services/bond_checking_service.dart';
 import 'package:flutter/material.dart';
-import 'package:hive_flutter/hive_flutter.dart';
+import 'package:prize_bond_checking_app/services/auth_service.dart';
 import 'package:prize_bond_checking_app/config/app_config.dart';
 import 'package:prize_bond_checking_app/screens/bulk_check_screen.dart';
 import 'package:prize_bond_checking_app/screens/scanner_screen.dart';
-import 'package:prize_bond_checking_app/models/check_record_model.dart';
-import 'package:prize_bond_checking_app/services/draw_service.dart';
-import 'package:prize_bond_checking_app/services/notification_service.dart';
 import 'package:prize_bond_checking_app/widgets/bond_number_extractor.dart';
 
 class CheckBondScreen extends StatefulWidget {
@@ -18,12 +17,13 @@ class CheckBondScreen extends StatefulWidget {
 }
 
 class _CheckBondScreenState extends State<CheckBondScreen> {
+  late final _storage = AuthService.requireStorage();
+
   final TextEditingController _bondNumberController = TextEditingController();
   String _selectedDenomination = AppConfig.defaultDenomination;
   bool _isChecking = false;
-  Map<String, dynamic>? _checkResult;
 
-  final DrawService _drawService = DrawService();
+  final _checking = BondCheckingService();
 
   @override
   void initState() {
@@ -40,7 +40,8 @@ class _CheckBondScreenState extends State<CheckBondScreen> {
     super.dispose();
   }
 
-  void _checkBond() async {
+  Future<void> _checkBond() async {
+    if (_isChecking) return;
     final number = _bondNumberController.text.trim();
     if (!BondNumberExtractor.isValidBondNumber(number)) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -51,43 +52,22 @@ class _CheckBondScreenState extends State<CheckBondScreen> {
 
     setState(() => _isChecking = true);
 
-    final result = _drawService.checkBond(number, _selectedDenomination);
-    await _drawService.updateSavedBondAfterCheck(number: number, denomination: _selectedDenomination, result: result);
-
-    if (result != null) {
-      await NotificationService().showWinNotification(bondNumber: number, denomination: _selectedDenomination, city: result.city);
+    try {
+      final result = await _checking.check(_storage, number, _selectedDenomination);
+      if (mounted && AuthService.canUseStorage(_storage)) _showResultDialog(result);
+    } catch (_) {
+      if (mounted && AuthService.canUseStorage(_storage)) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Could not save the check. Please try again.')));
+      }
+    } finally {
+      if (mounted) setState(() => _isChecking = false);
     }
-
-    final record = CheckRecord()
-      ..bondNumber = number
-      ..denomination = _selectedDenomination
-      ..checkedAt = DateTime.now()
-      ..resultStatus = result != null ? 'Won' : 'No Win'
-      ..drawNumber = result?.drawNumber ?? 'N/A'
-      ..drawDate = result?.drawDate ?? 'N/A';
-    await Hive.box<CheckRecord>('check_history').add(record);
-
-    final checkedDraws = _drawService.getCompleted().where((d) => d.denomination == _selectedDenomination).length;
-
-    setState(() {
-      _isChecking = false;
-      _checkResult = {
-        'number': number,
-        'denomination': _selectedDenomination,
-        'status': result != null ? 'Winner!' : 'No Win',
-        'drawDate': result?.drawDate ?? 'N/A',
-        'drawNumber': result?.drawNumber ?? 'N/A',
-        'checkedDraws': checkedDraws,
-        'prizePosition': result != null ? _drawService.getPrizePosition(result, number) : null,
-        'prizeAmount': result != null ? _drawService.getPrizeAmount(result, number) : null,
-      };
-    });
-
-    _showResultDialog();
   }
 
-  void _showResultDialog() {
-    final bool isWin = _checkResult!['status'] == 'Winner!';
+  void _showResultDialog(BondCheckResult result) {
+    final win = result.win;
+    final isWin = win != null;
+    final unavailable = result.outcome == BondCheckOutcome.resultsUnavailable;
 
     showDialog(
       context: context,
@@ -115,12 +95,12 @@ class _CheckBondScreenState extends State<CheckBondScreen> {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              _buildResultRow('Bond Number', _checkResult!['number']),
-              _buildResultRow('Denomination', _checkResult!['denomination']),
-              _buildResultRow('Status', _checkResult!['status']),
+              _buildResultRow('Bond Number', result.number),
+              _buildResultRow('Denomination', result.denomination),
+              _buildResultRow('Status', result.outcome.label),
               if (isWin) ...[
-                _buildResultRow('Prize', _checkResult!['prizePosition'] ?? ''),
-                _buildResultRow('Amount', _checkResult!['prizeAmount'] ?? ''),
+                _buildResultRow('Prize', win.position),
+                _buildResultRow('Amount', win.amount),
                 const SizedBox(height: 12),
                 Container(
                   padding: const EdgeInsets.all(16),
@@ -150,32 +130,33 @@ class _CheckBondScreenState extends State<CheckBondScreen> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      const Row(
+                      Row(
                         children: [
-                          Icon(Icons.sentiment_neutral, color: Color(0xFF92400E), size: 20),
-                          SizedBox(width: 8),
-                          Text(
-                            'No Prize Won',
-                            style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Color(0xFF92400E)),
+                          const Icon(Icons.sentiment_neutral, color: Color(0xFF92400E), size: 20),
+                          const SizedBox(width: 8),
+                          Flexible(
+                            child: Text(
+                              unavailable ? 'Insufficient sample results' : 'No match in the sample draws',
+                              style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Color(0xFF92400E)),
+                            ),
                           ),
                         ],
                       ),
                       const SizedBox(height: 8),
-                      Text(
-                        'Checked against ${_checkResult!['checkedDraws']} completed draws',
-                        style: const TextStyle(fontSize: 12, color: Color(0xFF78350F)),
-                      ),
+                      Text(result.coverage.summary, style: const TextStyle(fontSize: 12, color: Color(0xFF78350F))),
                     ],
                   ),
                 ),
               ],
-              if (_checkResult!['drawDate'] != 'N/A') ...[
+              if (win != null) ...[
                 const SizedBox(height: 16),
                 Text(
-                  'Last draw: ${_checkResult!['drawDate']} (Draw #${_checkResult!['drawNumber']})',
+                  'Matched draw #${win.drawNumber} • ${win.drawDate}',
                   style: const TextStyle(fontSize: 12, color: Color(0xFF6B7280)),
                 ),
               ],
+              const SizedBox(height: 12),
+              const Text(AppConfig.simulatedResultsLabel),
             ],
           ),
         ),
@@ -185,7 +166,6 @@ class _CheckBondScreenState extends State<CheckBondScreen> {
             onPressed: () {
               Navigator.pop(context);
               _bondNumberController.clear();
-              setState(() => _checkResult = null);
             },
             icon: const Icon(Icons.search),
             label: const Text('Check Another'),
@@ -207,9 +187,13 @@ class _CheckBondScreenState extends State<CheckBondScreen> {
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
           Text(label, style: const TextStyle(fontSize: 14, color: Color(0xFF6B7280))),
-          Text(
-            value,
-            style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: Color(0xFF1F2937)),
+          const SizedBox(width: 12),
+          Flexible(
+            child: Text(
+              value,
+              textAlign: TextAlign.end,
+              style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: Color(0xFF1F2937)),
+            ),
           ),
         ],
       ),
@@ -376,16 +360,15 @@ class _CheckBondScreenState extends State<CheckBondScreen> {
                   subtitle: 'Use camera',
                   gradient: const LinearGradient(colors: [Color(0xFF2D5BFF), Color(0xFF8B5CF6)]),
                   onTap: () async {
-                    final scannedNumber = await Navigator.push(
+                    final scan = await Navigator.push<BondScanResult>(
                       context,
                       MaterialPageRoute(builder: (_) => ScannerScreen(initialDenomination: _selectedDenomination)),
                     );
-                    if (scannedNumber != null) {
-                      _bondNumberController.text = scannedNumber;
-                      if (BondNumberExtractor.isValidBondNumber(scannedNumber)) {
-                        _checkBond();
-                      }
-                    }
+                    final result = scan?.check;
+                    if (result == null || !mounted || !AuthService.canUseStorage(_storage)) return;
+                    _bondNumberController.text = result.number;
+                    setState(() => _selectedDenomination = result.denomination);
+                    _showResultDialog(result);
                   },
                 ),
               ),

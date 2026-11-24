@@ -30,4 +30,7 @@ class Listing extends HiveObject {
 
   @HiveField(8)
   late bool isActive;
+
+  @HiveField(9)
+  String? ownerAccountId;
 }

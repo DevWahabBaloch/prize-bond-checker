@@ -1,11 +1,12 @@
 import 'package:flutter/material.dart';
-import 'package:hive_flutter/hive_flutter.dart';
-import 'package:prize_bond_checking_app/models/user_profile_model.dart';
+import 'package:flutter/services.dart';
+import 'package:prize_bond_checking_app/services/account_credentials.dart';
 import 'package:prize_bond_checking_app/services/auth_service.dart';
-import 'package:prize_bond_checking_app/services/notification_service.dart';
 
 class AdminScreen extends StatefulWidget {
-  const AdminScreen({super.key});
+  const AdminScreen({super.key, required this.access});
+
+  final AdminAccess access;
 
   @override
   State<AdminScreen> createState() => _AdminScreenState();
@@ -13,72 +14,138 @@ class AdminScreen extends StatefulWidget {
 
 class _AdminScreenState extends State<AdminScreen> with SingleTickerProviderStateMixin {
   late TabController _tabController;
-  String? _busyEmail;
-
-  Box<UserProfile> get _box => Hive.box<UserProfile>('users');
+  String? _busyAccountId;
 
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 2, vsync: this);
+    _tabController = TabController(length: 3, vsync: this);
   }
 
-  List<UserProfile> _pendingUsers(Box<UserProfile> box) {
-    return box.values.where((user) => !user.isApproved).toList()
+  List<AccountProfile> _pendingUsers(List<AccountProfile> accounts) {
+    return accounts.where((user) => !user.isApproved && !user.isRejected).toList()
       ..sort((a, b) => b.registeredAt.compareTo(a.registeredAt));
   }
 
-  List<UserProfile> _approvedUsers(Box<UserProfile> box) {
-    return box.values.where((user) => user.isApproved).toList()
-      ..sort((a, b) => b.registeredAt.compareTo(a.registeredAt));
+  List<AccountProfile> _approvedUsers(List<AccountProfile> accounts) {
+    return accounts.where((user) => user.isApproved).toList()..sort((a, b) => b.registeredAt.compareTo(a.registeredAt));
   }
 
-  Future<void> _notifyApprovedUser(UserProfile user) async {
-    final currentEmail = await AuthService.currentUserEmail();
-    if (currentEmail == user.id) {
-      await NotificationService().showApprovalNotification(userName: user.fullName);
+  Future<void> _approve(AccountProfile user) async {
+    if (_busyAccountId != null) return;
+    setState(() => _busyAccountId = user.id);
+    try {
+      await widget.access.approve(user.id);
+      if (!mounted || !widget.access.isOpen) return;
+      _message('${user.fullName} approved.');
+      _tabController.animateTo(1);
+    } on AccountException catch (error) {
+      if (mounted) _message(error.message);
+    } catch (_) {
+      if (mounted) _message('Could not approve this account.');
+    } finally {
+      if (mounted) setState(() => _busyAccountId = null);
     }
   }
 
-  Future<void> _approve(UserProfile user) async {
-    setState(() => _busyEmail = user.id);
-
-    user.isApproved = true;
-    await user.save();
-    await _notifyApprovedUser(user);
-
-    if (!mounted) return;
-    setState(() => _busyEmail = null);
-
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text('${user.fullName} approved and notified on this device.'),
-        backgroundColor: const Color(0xFF10B981),
-        behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-      ),
-    );
-
-    _tabController.animateTo(1);
-  }
-
-  Future<void> _reject(UserProfile user) async {
-    final currentEmail = await AuthService.currentUserEmail();
-    await user.delete();
-    if (currentEmail == user.id) {
-      await AuthService.logout();
+  Future<void> _reject(AccountProfile user) async {
+    if (_busyAccountId != null) return;
+    setState(() => _busyAccountId = user.id);
+    try {
+      await widget.access.reject(user.id);
+      if (mounted) _message('${user.fullName} declined. The account can be reviewed again.');
+    } on AccountException catch (error) {
+      if (mounted) _message(error.message);
+    } catch (_) {
+      if (mounted) _message('Could not decline this account.');
+    } finally {
+      if (mounted) setState(() => _busyAccountId = null);
     }
+  }
 
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text('${user.fullName} rejected.'),
-        backgroundColor: Colors.red[400],
-        behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+  Future<void> _resetPin(AccountProfile user) async {
+    if (_busyAccountId != null) return;
+    var pin = '';
+    var confirmation = '';
+    final digits = [FilteringTextInputFormatter.digitsOnly, LengthLimitingTextInputFormatter(4)];
+    final newPin = await showDialog<String>(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, update) => AlertDialog(
+          title: const Text('Reset account PIN'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text('Have ${user.fullName} enter a new four-digit PIN.'),
+              TextField(
+                obscureText: true,
+                inputFormatters: digits,
+                keyboardType: TextInputType.number,
+                decoration: const InputDecoration(labelText: 'New PIN'),
+                onChanged: (value) => update(() => pin = value),
+              ),
+              TextField(
+                obscureText: true,
+                inputFormatters: digits,
+                keyboardType: TextInputType.number,
+                decoration: const InputDecoration(labelText: 'Confirm PIN'),
+                onChanged: (value) => update(() => confirmation = value),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
+            FilledButton(
+              onPressed: pin.length == 4 && pin == confirmation ? () => Navigator.pop(context, pin) : null,
+              child: const Text('Reset PIN'),
+            ),
+          ],
+        ),
       ),
     );
+    if (newPin == null || !mounted || _busyAccountId != null) return;
+    setState(() => _busyAccountId = user.id);
+    try {
+      try {
+        await widget.access.resetPin(user.id, newPin);
+      } on CredentialException catch (error) {
+        if (!mounted || !widget.access.isOpen) return;
+        if (!error.canRecover) rethrow;
+        final recover = await _confirmRecovery(user, error);
+        if (!recover || !mounted || !widget.access.isOpen) return;
+        await widget.access.resetPin(user.id, newPin, recover: true);
+      }
+      if (mounted && widget.access.isOpen) _message('PIN updated for ${user.fullName}.');
+    } on CredentialException catch (error) {
+      if (mounted && widget.access.isOpen) _message(error.message);
+    } on AccountException catch (error) {
+      if (mounted) _message(error.message);
+    } catch (_) {
+      if (mounted) _message('Could not reset the PIN.');
+    } finally {
+      if (mounted) setState(() => _busyAccountId = null);
+    }
   }
+
+  Future<bool> _confirmRecovery(AccountProfile user, CredentialException error) async {
+    return await showDialog<bool>(
+          context: context,
+          builder: (context) => AlertDialog(
+            title: const Text('Recover account PIN'),
+            content: Text(
+              '${error.message} Verify the identity of ${user.fullName} (${user.email}) before continuing. '
+              'Recovery sets a new PIN for this account and preserves its records. Each other affected account needs its own recovery.',
+            ),
+            actions: [
+              TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
+              FilledButton(onPressed: () => Navigator.pop(context, true), child: const Text('Recover PIN')),
+            ],
+          ),
+        ) ??
+        false;
+  }
+
+  void _message(String text) => ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(text)));
 
   @override
   void dispose() {
@@ -86,72 +153,87 @@ class _AdminScreenState extends State<AdminScreen> with SingleTickerProviderStat
     super.dispose();
   }
 
-  Widget _buildApprovedTab(List<UserProfile> approved) {
+  Widget _buildApprovedTab(List<AccountProfile> approved) {
     return approved.isEmpty
         ? const _EmptyState(icon: Icons.people_outline, message: 'No approved users yet')
         : ListView.separated(
             padding: const EdgeInsets.all(20),
             itemCount: approved.length,
             separatorBuilder: (_, __) => const SizedBox(height: 12),
-            itemBuilder: (_, i) => _ApprovedCard(user: approved[i]),
+            itemBuilder: (_, i) => _ApprovedCard(user: approved[i], onResetPin: () => _resetPin(approved[i])),
           );
   }
 
   @override
   Widget build(BuildContext context) {
-    return ValueListenableBuilder(
-      valueListenable: _box.listenable(),
-      builder: (context, Box<UserProfile> box, _) {
-        final pending = _pendingUsers(box);
-        final approved = _approvedUsers(box);
+    final accounts = widget.access.accounts;
+    final pending = _pendingUsers(accounts);
+    final approved = _approvedUsers(accounts);
+    final rejected = accounts.where((user) => user.isRejected).toList();
 
-        return Scaffold(
-          backgroundColor: const Color(0xFFFAFBFC),
-          appBar: AppBar(
-            backgroundColor: Colors.white,
-            elevation: 0,
-            title: const Text(
-              'Admin Panel',
-              style: TextStyle(color: Color(0xFF1F2937), fontWeight: FontWeight.bold),
-            ),
-            bottom: TabBar(
-              controller: _tabController,
-              labelColor: const Color(0xFF2D5BFF),
-              unselectedLabelColor: Colors.grey,
-              indicatorColor: const Color(0xFF2D5BFF),
-              tabs: [
-                Tab(text: 'Pending (${pending.length})'),
-                Tab(text: 'Approved (${approved.length})'),
-              ],
-            ),
-          ),
-          body: TabBarView(
-            controller: _tabController,
-            children: [
-              pending.isEmpty
-                  ? const _EmptyState(icon: Icons.check_circle_outline, message: 'No pending registrations')
-                  : ListView.separated(
-                      padding: const EdgeInsets.all(20),
-                      itemCount: pending.length,
-                      separatorBuilder: (_, __) => const SizedBox(height: 12),
-                      itemBuilder: (_, i) => _PendingCard(
-                        user: pending[i],
-                        isBusy: _busyEmail == pending[i].id,
-                        onApprove: () => _approve(pending[i]),
-                        onReject: () => _reject(pending[i]),
+    return Scaffold(
+      backgroundColor: const Color(0xFFFAFBFC),
+      appBar: AppBar(
+        backgroundColor: Colors.white,
+        elevation: 0,
+        title: const Text(
+          'Admin Panel',
+          style: TextStyle(color: Color(0xFF1F2937), fontWeight: FontWeight.bold),
+        ),
+        bottom: TabBar(
+          controller: _tabController,
+          labelColor: const Color(0xFF2D5BFF),
+          unselectedLabelColor: Colors.grey,
+          indicatorColor: const Color(0xFF2D5BFF),
+          tabs: [
+            Tab(text: 'Pending (${pending.length})'),
+            Tab(text: 'Approved (${approved.length})'),
+            Tab(text: 'Declined (${rejected.length})'),
+          ],
+        ),
+      ),
+      body: TabBarView(
+        controller: _tabController,
+        children: [
+          pending.isEmpty
+              ? const _EmptyState(icon: Icons.check_circle_outline, message: 'No pending registrations')
+              : ListView.separated(
+                  padding: const EdgeInsets.all(20),
+                  itemCount: pending.length,
+                  separatorBuilder: (_, __) => const SizedBox(height: 12),
+                  itemBuilder: (_, i) => _PendingCard(
+                    user: pending[i],
+                    isBusy: _busyAccountId == pending[i].id,
+                    onApprove: () => _approve(pending[i]),
+                    onReject: () => _reject(pending[i]),
+                  ),
+                ),
+          _buildApprovedTab(approved),
+          rejected.isEmpty
+              ? const _EmptyState(icon: Icons.person_off_outlined, message: 'No declined registrations')
+              : ListView.builder(
+                  padding: const EdgeInsets.all(20),
+                  itemCount: rejected.length,
+                  itemBuilder: (context, index) {
+                    final user = rejected[index];
+                    return ListTile(
+                      title: Text(user.fullName),
+                      subtitle: Text(user.email),
+                      trailing: TextButton(
+                        onPressed: _busyAccountId == null ? () => _approve(user) : null,
+                        child: const Text('Approve'),
                       ),
-                    ),
-              _buildApprovedTab(approved),
-            ],
-          ),
-        );
-      },
+                    );
+                  },
+                ),
+        ],
+      ),
     );
   }
 }
 
 class _PendingCard extends StatelessWidget {
-  final UserProfile user;
+  final AccountProfile user;
   final bool isBusy;
   final VoidCallback onApprove;
   final VoidCallback onReject;
@@ -210,7 +292,6 @@ class _PendingCard extends StatelessWidget {
             spacing: 8,
             runSpacing: 6,
             children: [
-              _Tag(Icons.badge_outlined, user.role.isNotEmpty ? user.role : 'N/A'),
               _Tag(Icons.location_city_outlined, user.city.isNotEmpty ? user.city : 'N/A'),
               _Tag(Icons.calendar_today_outlined, _formatDate(user.registeredAt)),
             ],
@@ -263,9 +344,11 @@ class _PendingCard extends StatelessWidget {
 }
 
 class _ApprovedCard extends StatelessWidget {
-  final UserProfile user;
+  final AccountProfile user;
 
-  const _ApprovedCard({required this.user});
+  final VoidCallback onResetPin;
+
+  const _ApprovedCard({required this.user, required this.onResetPin});
 
   @override
   Widget build(BuildContext context) {
@@ -298,21 +381,15 @@ class _ApprovedCard extends StatelessWidget {
                 Wrap(
                   spacing: 6,
                   runSpacing: 4,
-                  children: [
-                    _Tag(Icons.badge_outlined, user.role.isNotEmpty ? user.role : 'N/A'),
-                    _Tag(Icons.location_city_outlined, user.city.isNotEmpty ? user.city : 'N/A'),
-                  ],
+                  children: [_Tag(Icons.location_city_outlined, user.city.isNotEmpty ? user.city : 'N/A')],
                 ),
               ],
             ),
           ),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-            decoration: BoxDecoration(color: const Color(0xFF10B981).withOpacity(0.1), borderRadius: BorderRadius.circular(8)),
-            child: const Text(
-              'Approved',
-              style: TextStyle(color: Color(0xFF10B981), fontSize: 11, fontWeight: FontWeight.w600),
-            ),
+          IconButton(
+            tooltip: 'Reset PIN',
+            onPressed: onResetPin,
+            icon: const Icon(Icons.lock_reset_rounded, color: Color(0xFF2D5BFF)),
           ),
         ],
       ),

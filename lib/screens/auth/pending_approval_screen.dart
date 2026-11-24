@@ -4,48 +4,28 @@ import 'landing_screen.dart';
 import 'pin_screen.dart';
 
 class PendingApprovalScreen extends StatefulWidget {
+  final String accountId;
   final String email;
-  const PendingApprovalScreen({super.key, required this.email});
+
+  const PendingApprovalScreen({super.key, required this.accountId, required this.email});
 
   @override
   State<PendingApprovalScreen> createState() => _PendingApprovalScreenState();
 }
 
 class _PendingApprovalScreenState extends State<PendingApprovalScreen> {
-  bool _checking = false;
-  late String _displayEmail;
-
-  @override
-  void initState() {
-    super.initState();
-    _displayEmail = widget.email;
-    if (_displayEmail.isEmpty) _loadEmail();
-  }
-
-  Future<void> _loadEmail() async {
-    final p = await AuthService.getUserProfile();
-    if (mounted) setState(() => _displayEmail = p['email'] ?? '');
-  }
-
-  Future<void> _checkApproval() async {
-    setState(() => _checking = true);
-    await Future.delayed(const Duration(milliseconds: 600));
-    final approved = await AuthService.isApproved();
-    if (!mounted) return;
-    setState(() => _checking = false);
-
-    if (approved) {
-      Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => const PinScreen()));
-    } else {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: const Text('Still waiting for admin approval…'),
-          backgroundColor: const Color(0xFFF59E0B),
-          behavior: SnackBarBehavior.floating,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-        ),
-      );
+  void _checkApproval() {
+    final account = AuthService.selectedAccount;
+    if (account != null && account.id == widget.accountId && account.isApproved && !account.isRejected) {
+      Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => PinScreen(accountId: account.id)));
+      return;
     }
+    final message = account?.id != widget.accountId
+        ? 'Sign in again to check this account.'
+        : account!.isRejected
+        ? 'The administrator declined this account. Contact them to request another review.'
+        : 'Still waiting for admin approval…';
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
   }
 
   @override
@@ -85,15 +65,15 @@ class _PendingApprovalScreenState extends State<PendingApprovalScreen> {
               const SizedBox(height: 10),
 
               Text(
-                'Your registration has been submitted. '
-                'An admin will review your account and notify you at:',
+                'Your registration is awaiting local review. '
+                'You can check the approval status in the app.',
                 textAlign: TextAlign.center,
                 style: TextStyle(fontSize: 14, color: Colors.grey[500], height: 1.5),
               ),
 
               const SizedBox(height: 12),
 
-              if (_displayEmail.isNotEmpty)
+              if (widget.email.isNotEmpty)
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
                   decoration: BoxDecoration(
@@ -107,7 +87,7 @@ class _PendingApprovalScreenState extends State<PendingApprovalScreen> {
                       const SizedBox(width: 8),
                       Flexible(
                         child: Text(
-                          _displayEmail,
+                          widget.email,
                           overflow: TextOverflow.ellipsis,
                           style: const TextStyle(color: Color(0xFF2D5BFF), fontWeight: FontWeight.w600, fontSize: 14),
                         ),
@@ -151,18 +131,9 @@ class _PendingApprovalScreenState extends State<PendingApprovalScreen> {
                 width: double.infinity,
                 height: 52,
                 child: ElevatedButton.icon(
-                  onPressed: _checking ? null : _checkApproval,
-                  icon: _checking
-                      ? const SizedBox(
-                          width: 18,
-                          height: 18,
-                          child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2),
-                        )
-                      : const Icon(Icons.refresh_rounded),
-                  label: Text(
-                    _checking ? 'Checking…' : 'Check Approval Status',
-                    style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600),
-                  ),
+                  onPressed: _checkApproval,
+                  icon: const Icon(Icons.refresh_rounded),
+                  label: const Text('Check Approval Status', style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600)),
                   style: ElevatedButton.styleFrom(
                     backgroundColor: const Color(0xFF2D5BFF),
                     foregroundColor: Colors.white,
